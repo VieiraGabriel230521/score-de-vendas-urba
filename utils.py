@@ -6,6 +6,7 @@ import re
 import unicodedata
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from __future__ import annotations
 
 import pandas as pd
 import pdfplumber
@@ -195,7 +196,7 @@ def faixa_ato(percentual: float) -> str:
     return "ABAIXO DE 1%"
 
 
-def mapear_score(letra: str) -> str | None:
+def mapear_score(letra: str):
     """Converte letra do score SPC para faixa. Ex: 'A' → 'A - B'"""
     letra = (letra or "").strip().upper()
     if letra in ("A", "B"): return "A - B"
