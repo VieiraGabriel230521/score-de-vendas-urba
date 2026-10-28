@@ -5,6 +5,7 @@
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from __future__ import annotations
 
 import bcrypt
 import pandas as pd
@@ -123,7 +124,7 @@ def init_db():
 # USUÁRIOS — AUTENTICAÇÃO
 # ============================================================
 
-def autenticar_usuario(email: str, senha: str) -> dict | None:
+def autenticar_usuario(email: str, senha: str):
     """
     Verifica e-mail e senha.
     Retorna dict com dados do usuário ou None se inválido.
