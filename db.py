@@ -1,3 +1,4 @@
+from __future__ import annotations
 # db.py
 # Score de Vendas Urba
 # Módulo de conexão com Neon (PostgreSQL) + todas as funções de banco
@@ -5,8 +6,6 @@
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from __future__ import annotations
-
 import bcrypt
 import pandas as pd
 import psycopg2
