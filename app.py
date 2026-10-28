@@ -3,6 +3,12 @@
 # Arquivo principal — ponto de entrada do Streamlit
 
 import streamlit as st
+import bcrypt
+senha = "Faixabranca2026!"
+hash_gerado = bcrypt.hashpw(senha.encode(), bcrypt.gensalt(12)).decode()
+st.write(hash_gerado)
+st.stop()
+
 
 from db import init_db
 from styles import aplicar_estilos, hero_banner, rodape
@@ -41,13 +47,13 @@ for chave, valor in DEFAULTS.items():
         st.session_state[chave] = valor
 
 # ============================================================
-# IMPORTAÇÃO DAS PÁGINAS
-# (feita aqui para evitar importação circular)
+# AÇÃO DAS PÁGINAS
+# (feita aqui para evitar ação circular)
 # ============================================================
-from pages.login    import pagina_login
-from pages.simulador import pagina_simulador
-from pages.historico import pagina_historico
-from pages.usuarios  import pagina_usuarios
+from pages.login     pagina_login
+from pages.simulador  pagina_simulador
+from pages.historico  pagina_historico
+from pages.usuarios   pagina_usuarios
 
 # ============================================================
 # ROTEAMENTO — SEM USUÁRIO → LOGIN
@@ -153,7 +159,7 @@ elif pagina == "Usuários":
 
 elif pagina == "Empreendimentos":
     if eh_admin:
-        from pages.empreendimentos import pagina_empreendimentos
+        from pages.empreendimentos  pagina_empreendimentos
         pagina_empreendimentos()
     else:
         st.warning("⛔ Acesso restrito a administradores.")
