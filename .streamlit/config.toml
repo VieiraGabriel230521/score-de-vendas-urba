@@ -1,13 +1,14 @@
 [theme]
-base            = "light"
-primaryColor    = "#079D56"
-backgroundColor = "#FFFFFF"
+primaryColor       = "#079D56"
+backgroundColor    = "#FFFFFF"
 secondaryBackgroundColor = "#F4F6F8"
-textColor       = "#2D2D2D"
-font            = "sans serif"
+textColor          = "#2D2D2D"
+font               = "sans serif"
+
+[client]
+showSidebarNavigation = false
 
 [server]
-maxUploadSize = 10
-
-[browser]
-gatherUsageStats = false
+headless = true
+enableCORS = false
+enableXsrfProtection = false
