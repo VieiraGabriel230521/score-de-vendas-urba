@@ -3,6 +3,7 @@
 # Arquivo principal — ponto de entrada do Streamlit
 
 import streamlit as st
+
 from db import init_db
 from styles import aplicar_estilos, hero_banner, rodape
 
@@ -11,7 +12,7 @@ from styles import aplicar_estilos, hero_banner, rodape
 # ============================================================
 st.set_page_config(
     page_title="Score de Vendas | Urba",
-    page_icon="assets/logo_urba.png",
+    page_icon="assets/Logo verde.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -40,8 +41,7 @@ for chave, valor in DEFAULTS.items():
         st.session_state[chave] = valor
 
 # ============================================================
-# AÇÃO DAS PÁGINAS
-# (feita aqui para evitar ação circular)
+# IMPORTS DAS PÁGINAS
 # ============================================================
 from pages.login import pagina_login
 from pages.simulador import pagina_simulador
@@ -106,7 +106,6 @@ paginas_disponiveis = ["Simulador"]
 if eh_admin:
     paginas_disponiveis += ["Histórico", "Usuários", "Empreendimentos"]
 
-# Garante que a página atual é válida para o perfil
 if st.session_state.pagina_atual not in paginas_disponiveis:
     st.session_state.pagina_atual = "Simulador"
 
