@@ -152,7 +152,7 @@ elif pagina == "Usuários":
 
 elif pagina == "Empreendimentos":
     if eh_admin:
-        from pages.empreendimentos  pagina_empreendimentos
+        from pages.empreendimentos import pagina_empreendimentos
         pagina_empreendimentos()
     else:
         st.warning("⛔ Acesso restrito a administradores.")
