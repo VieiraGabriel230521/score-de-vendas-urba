@@ -1,3 +1,4 @@
+from __future__ import annotations
 # utils.py
 # Score de Vendas Urba
 # Funções auxiliares — cálculos, formatações, extração SPC, cenários
@@ -6,8 +7,6 @@ import re
 import unicodedata
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from __future__ import annotations
-
 import pandas as pd
 import pdfplumber
 import streamlit as st
