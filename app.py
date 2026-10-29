@@ -18,15 +18,17 @@ st.set_page_config(
 )
 
 # ============================================================
-# INICIALIZAÇÃO
+# INICIALIZAÇÃO (roda só uma vez por sessão)
 # ============================================================
 aplicar_estilos()
 
-try:
-    init_db()
-except Exception as e:
-    st.error(f"❌ Erro ao conectar ao banco de dados: {e}")
-    st.stop()
+if "db_iniciado" not in st.session_state:
+    try:
+        init_db()
+        st.session_state.db_iniciado = True
+    except Exception as e:
+        st.error(f"❌ Erro ao conectar ao banco de dados: {e}")
+        st.stop()
 
 # ============================================================
 # SESSION STATE — DEFAULTS
@@ -43,10 +45,10 @@ for chave, valor in DEFAULTS.items():
 # ============================================================
 # IMPORTS DAS PÁGINAS
 # ============================================================
-from pages.login import pagina_login
-from pages.simulador import pagina_simulador
-from pages.historico import pagina_historico
-from pages.usuarios import pagina_usuarios
+from pages.login      import pagina_login
+from pages.simulador  import pagina_simulador
+from pages.historico  import pagina_historico
+from pages.usuarios   import pagina_usuarios
 
 # ============================================================
 # ROTEAMENTO — SEM USUÁRIO → LOGIN
@@ -89,7 +91,29 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("Sair", use_container_width=True, key="btn_sair"):
+    # Botão Sair — cor forçada via CSS inline para garantir visibilidade
+    st.markdown("""
+    <style>
+    [data-testid="stSidebar"] [data-testid="stButton"] button {
+        background-color: rgba(255,255,255,0.15) !important;
+        color: #FFFFFF !important;
+        border: 1.5px solid rgba(255,255,255,0.5) !important;
+        font-weight: 700 !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stButton"] button:hover {
+        background-color: rgba(255,255,255,0.28) !important;
+        color: #FFFFFF !important;
+        border-color: rgba(255,255,255,0.8) !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stButton"] button p,
+    [data-testid="stSidebar"] [data-testid="stButton"] button span {
+        color: #FFFFFF !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    if st.button("⬅️ Sair", use_container_width=True, key="btn_sair"):
         for chave, valor in DEFAULTS.items():
             st.session_state[chave] = valor
         st.rerun()
@@ -100,8 +124,36 @@ with st.sidebar:
 hero_banner()
 
 # ============================================================
-# NAVEGAÇÃO
+# NAVEGAÇÃO — CSS para abas ativas com texto preto fundo verde escuro
 # ============================================================
+st.markdown("""
+<style>
+/* Aba INATIVA — borda verde, texto verde, fundo branco */
+div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="secondary"] {
+    background-color: #FFFFFF !important;
+    color: #079D56 !important;
+    border: 1.5px solid #079D56 !important;
+    font-weight: 700 !important;
+}
+div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="secondary"] p,
+div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="secondary"] span {
+    color: #079D56 !important;
+}
+
+/* Aba ATIVA — fundo verde escuro, texto PRETO */
+div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="primary"] {
+    background-color: #056B3A !important;
+    color: #000000 !important;
+    border: none !important;
+    font-weight: 800 !important;
+}
+div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="primary"] p,
+div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="primary"] span {
+    color: #000000 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 paginas_disponiveis = ["Simulador"]
 if eh_admin:
     paginas_disponiveis += ["Histórico", "Usuários", "Empreendimentos"]
