@@ -32,27 +32,29 @@ def pagina_login() -> None:
 
         st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-        # ── Formulário ──
-        email = st.text_input(
-            "E-MAIL",
-            placeholder="nome@urba.com.br",
-            key="login_email",
-        )
-        senha = st.text_input(
-            "SENHA",
-            type="password",
-            placeholder="••••••••",
-            key="login_senha",
-        )
+        # ── Formulário com st.form para evitar duplo clique ──
+        with st.form(key="form_login", clear_on_submit=False):
+            email = st.text_input(
+                "E-MAIL",
+                placeholder="nome@urba.com.br",
+                key="login_email",
+            )
+            senha = st.text_input(
+                "SENHA",
+                type="password",
+                placeholder="••••••••",
+                key="login_senha",
+            )
 
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
-        if st.button(
-            "ENTRAR",
-            type="primary",
-            use_container_width=True,
-            key="btn_entrar",
-        ):
+            submitted = st.form_submit_button(
+                "ENTRAR",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if submitted:
             # ── Validação básica ──
             if not email or not senha:
                 st.error("Preencha e-mail e senha.")
@@ -60,7 +62,7 @@ def pagina_login() -> None:
 
             # ── Autenticação ──
             with st.spinner("Verificando credenciais..."):
-                usuario = autenticar_usuario(email, senha)
+                usuario = autenticar_usuario(email.strip().lower(), senha)
 
             if usuario:
                 st.session_state.usuario      = usuario
