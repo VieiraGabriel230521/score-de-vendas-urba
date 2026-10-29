@@ -32,45 +32,50 @@ def pagina_login() -> None:
 
         st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-        # ── Formulário com st.form para evitar duplo clique ──
-        with st.form(key="form_login", clear_on_submit=False):
-            email = st.text_input(
-                "E-MAIL",
-                placeholder="nome@urba.com.br",
-                key="login_email",
-            )
-            senha = st.text_input(
-                "SENHA",
-                type="password",
-                placeholder="••••••••",
-                key="login_senha",
-            )
+        # ── Campos fora do form para reatividade imediata ──
+        email = st.text_input(
+            "E-MAIL",
+            placeholder="nome@urba.com.br",
+            key="login_email",
+        )
+        senha = st.text_input(
+            "SENHA",
+            type="password",
+            placeholder="••••••••",
+            key="login_senha",
+        )
 
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
-            submitted = st.form_submit_button(
-                "ENTRAR",
-                type="primary",
-                use_container_width=True,
-            )
+        # ── Guarda erro no session_state para não perder entre reruns ──
+        if "login_erro" not in st.session_state:
+            st.session_state.login_erro = ""
 
-        if submitted:
-            # ── Validação básica ──
+        if st.button(
+            "ENTRAR",
+            type="primary",
+            use_container_width=True,
+            key="btn_entrar",
+        ):
+            st.session_state.login_erro = ""
+
             if not email or not senha:
-                st.error("Preencha e-mail e senha.")
-                return
-
-            # ── Autenticação ──
-            with st.spinner("Verificando credenciais..."):
-                usuario = autenticar_usuario(email.strip().lower(), senha)
-
-            if usuario:
-                st.session_state.usuario      = usuario
-                st.session_state.pagina_atual = "Simulador"
-                st.session_state.resultado    = None
-                st.rerun()
+                st.session_state.login_erro = "Preencha e-mail e senha."
             else:
-                st.error("E-mail ou senha incorretos, ou usuário inativo.")
+                usuario = autenticar_usuario(email.strip().lower(), senha)
+                if usuario:
+                    # Limpa erro e seta usuário ANTES do rerun
+                    st.session_state.login_erro = ""
+                    st.session_state.usuario      = usuario
+                    st.session_state.pagina_atual = "Simulador"
+                    st.session_state.resultado    = None
+                    st.rerun()
+                else:
+                    st.session_state.login_erro = "E-mail ou senha incorretos, ou usuário inativo."
+
+        # Exibe erro persistido no session_state
+        if st.session_state.login_erro:
+            st.error(st.session_state.login_erro)
 
         # ── Rodapé do card ──
         st.markdown("""
