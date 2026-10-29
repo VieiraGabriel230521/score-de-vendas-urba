@@ -91,29 +91,33 @@ with st.sidebar:
 
     st.divider()
 
-    # Botão Sair — cor forçada via CSS inline para garantir visibilidade
+    # ── CSS do botão Sair — texto verde escuro visível ──
     st.markdown("""
     <style>
-    [data-testid="stSidebar"] [data-testid="stButton"] button {
-        background-color: rgba(255,255,255,0.15) !important;
-        color: #FFFFFF !important;
-        border: 1.5px solid rgba(255,255,255,0.5) !important;
-        font-weight: 700 !important;
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button,
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button:focus,
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button:active {
+        background-color: #FFFFFF !important;
+        color: #056B3A !important;
+        border: 2px solid #056B3A !important;
+        font-weight: 800 !important;
         border-radius: 8px !important;
+        font-size: .9rem !important;
     }
-    [data-testid="stSidebar"] [data-testid="stButton"] button:hover {
-        background-color: rgba(255,255,255,0.28) !important;
-        color: #FFFFFF !important;
-        border-color: rgba(255,255,255,0.8) !important;
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+        background-color: #E8F5EE !important;
+        color: #033D22 !important;
+        border-color: #033D22 !important;
     }
-    [data-testid="stSidebar"] [data-testid="stButton"] button p,
-    [data-testid="stSidebar"] [data-testid="stButton"] button span {
-        color: #FFFFFF !important;
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button p,
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button span,
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button div {
+        color: #056B3A !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    if st.button("⬅️ Sair", use_container_width=True, key="btn_sair"):
+    if st.button("Sair", use_container_width=True, key="btn_sair"):
         for chave, valor in DEFAULTS.items():
             st.session_state[chave] = valor
         st.rerun()
@@ -124,32 +128,38 @@ with st.sidebar:
 hero_banner()
 
 # ============================================================
-# NAVEGAÇÃO — CSS para abas ativas com texto preto fundo verde escuro
+# NAVEGAÇÃO — CSS para abas ativas (fundo verde escuro + texto BRANCO)
 # ============================================================
 st.markdown("""
 <style>
-/* Aba INATIVA — borda verde, texto verde, fundo branco */
-div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="secondary"] {
+/* ── Aba INATIVA ── */
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button,
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button:focus {
     background-color: #FFFFFF !important;
-    color: #079D56 !important;
     border: 1.5px solid #079D56 !important;
     font-weight: 700 !important;
+    border-radius: 9px !important;
 }
-div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="secondary"] p,
-div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="secondary"] span {
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button p,
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button span,
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button div {
     color: #079D56 !important;
 }
 
-/* Aba ATIVA — fundo verde escuro, texto PRETO */
-div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="primary"] {
+/* ── Aba ATIVA (kind=primary) — fundo verde escuro + texto BRANCO ── */
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"],
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"]:focus,
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"]:active {
     background-color: #056B3A !important;
-    color: #000000 !important;
+    background-image: none !important;
     border: none !important;
     font-weight: 800 !important;
+    box-shadow: 0 2px 8px rgba(5,107,58,0.35) !important;
 }
-div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="primary"] p,
-div[data-testid="stHorizontalBlock"] [data-testid="stButton"] button[kind="primary"] span {
-    color: #000000 !important;
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] p,
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] span,
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] div {
+    color: #FFFFFF !important;
 }
 </style>
 """, unsafe_allow_html=True)
