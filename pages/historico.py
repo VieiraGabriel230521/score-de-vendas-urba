@@ -1,6 +1,8 @@
+from __future__ import annotations
 # pages/historico.py
 # Score de Vendas Urba
 # Página de histórico de simulações (somente ADMINISTRADOR)
+# SEGURANÇA: CPF removido — exibe nome_proponente
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -36,12 +38,11 @@ def pagina_historico() -> None:
     # ============================================================
     # FILTROS
     # ============================================================
-    f1, f2, f3, f4 = st.columns(4)
+    f1, f2, f3 = st.columns(3)
 
     with f1:
         vendedores = sorted(
-            x for x in hist.get("vendedor_nome", hist.get("vendedor_email", ""))
-            .fillna("").astype(str).unique() if x
+            x for x in hist["vendedor_nome"].fillna("").astype(str).unique() if x
         )
         filtro_v = st.selectbox("Vendedor", ["TODOS"] + vendedores, key="hist_filtro_v")
 
@@ -57,13 +58,6 @@ def pagina_historico() -> None:
         )
         filtro_c = st.selectbox("Classificação", ["TODAS"] + classes, key="hist_filtro_c")
 
-    with f4:
-        busca_cpf = st.text_input(
-            "Buscar CPF",
-            placeholder="000.000.000-00",
-            key="hist_busca_cpf",
-        ).strip()
-
     # ── Aplica filtros ──
     exib = hist.copy()
     if filtro_v != "TODOS":
@@ -72,8 +66,6 @@ def pagina_historico() -> None:
         exib = exib[exib["empreendimento"].astype(str) == filtro_e]
     if filtro_c != "TODAS":
         exib = exib[exib["classificacao"].astype(str) == filtro_c]
-    if busca_cpf:
-        exib = exib[exib["cpf_proponente"].astype(str).str.contains(busca_cpf, na=False)]
 
     # ============================================================
     # KPIs
@@ -96,11 +88,12 @@ def pagina_historico() -> None:
     st.divider()
 
     # ============================================================
-    # TABELA
+    # TABELA — sem CPF, com nome_proponente
     # ============================================================
     colunas_exib = [
         "id", "data_hora", "vendedor_nome", "empreendimento", "unidade",
-        "cpf_proponente", "score_proponente", "renda_total",
+        "nome_proponente",
+        "score_proponente", "renda_total",
         "percentual_ato", "percentual_comprometimento",
         "score_final", "classificacao",
     ]
@@ -111,23 +104,23 @@ def pagina_historico() -> None:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "id":                        st.column_config.NumberColumn("ID",           width="small"),
-            "data_hora":                 st.column_config.DatetimeColumn("Data/Hora",  width="medium", format="DD/MM/YYYY HH:mm"),
-            "vendedor_nome":             st.column_config.TextColumn("Vendedor",       width="medium"),
-            "empreendimento":            st.column_config.TextColumn("Empreendimento", width="medium"),
-            "unidade":                   st.column_config.TextColumn("Unidade",        width="small"),
-            "cpf_proponente":            st.column_config.TextColumn("CPF",            width="medium"),
-            "score_proponente":          st.column_config.TextColumn("Score SPC",      width="small"),
-            "renda_total":               st.column_config.NumberColumn("Renda Total",  width="medium", format="R$ %.2f"),
-            "percentual_ato":            st.column_config.NumberColumn("% Ato",        width="small",  format="%.2f%%"),
-            "percentual_comprometimento":st.column_config.NumberColumn("% Comp.",      width="small",  format="%.2f%%"),
-            "score_final":               st.column_config.NumberColumn("Score",        width="small"),
-            "classificacao":             st.column_config.TextColumn("Classificação",  width="medium"),
+            "id":                         st.column_config.NumberColumn("ID",             width="small"),
+            "data_hora":                  st.column_config.DatetimeColumn("Data/Hora",    width="medium", format="DD/MM/YYYY HH:mm"),
+            "vendedor_nome":              st.column_config.TextColumn("Vendedor",         width="medium"),
+            "empreendimento":             st.column_config.TextColumn("Empreendimento",   width="medium"),
+            "unidade":                    st.column_config.TextColumn("Unidade",          width="small"),
+            "nome_proponente":            st.column_config.TextColumn("Proponente",       width="medium"),
+            "score_proponente":           st.column_config.TextColumn("Score SPC",        width="small"),
+            "renda_total":                st.column_config.NumberColumn("Renda Total",    width="medium", format="R$ %.2f"),
+            "percentual_ato":             st.column_config.NumberColumn("% Ato",          width="small",  format="%.2f%%"),
+            "percentual_comprometimento": st.column_config.NumberColumn("% Comp.",        width="small",  format="%.2f%%"),
+            "score_final":                st.column_config.NumberColumn("Score",          width="small"),
+            "classificacao":              st.column_config.TextColumn("Classificação",    width="medium"),
         },
     )
 
     # ============================================================
-    # EXPORTAR CSV
+    # EXPORTAR CSV — sem CPF
     # ============================================================
     st.download_button(
         label="⬇️ BAIXAR HISTÓRICO (CSV)",
