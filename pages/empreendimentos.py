@@ -1,6 +1,10 @@
+from __future__ import annotations
 # pages/empreendimentos.py
 # Score de Vendas Urba
 # Página de gestão de empreendimentos (somente ADMINISTRADOR)
+# CORREÇÃO: bug do upload Excel — buffer lido duas vezes corrigido com io.BytesIO
+
+import io
 
 import pandas as pd
 import streamlit as st
@@ -38,35 +42,58 @@ def pagina_empreendimentos() -> None:
             type=["xlsx"],
             key="emp_upload_xlsx",
         )
+
         if arquivo:
             try:
-                xl    = pd.ExcelFile(arquivo, engine="openpyxl")
-                abas  = xl.sheet_names
-                aba   = st.selectbox("Selecione a aba", abas, key="emp_aba")
-                df_xl = pd.read_excel(arquivo, sheet_name=aba, engine="openpyxl")
+                # ── CORREÇÃO: lê os bytes uma vez e reutiliza com BytesIO ──
+                # O problema anterior: pd.ExcelFile consumia o buffer do arquivo,
+                # e pd.read_excel não conseguia mais ler (buffer já no final).
+                conteudo = arquivo.read()
+
+                xl   = pd.ExcelFile(io.BytesIO(conteudo), engine="openpyxl")
+                abas = xl.sheet_names
+
+                aba = st.selectbox("Selecione a aba", abas, key="emp_aba")
+
+                # Usa um novo BytesIO para o read_excel (buffer independente)
+                df_xl = pd.read_excel(io.BytesIO(conteudo), sheet_name=aba, engine="openpyxl")
                 df_xl = mapear_colunas_xlsx(df_xl)
 
                 if {"Empreendimento", "Unidade"}.issubset(df_xl.columns):
-                    st.success(f"✅ {len(df_xl)} linhas encontradas na aba **{aba}**.")
+                    # Remove linhas completamente vazias
+                    df_xl = df_xl.dropna(subset=["Empreendimento", "Unidade"], how="all")
+                    df_xl["Empreendimento"] = df_xl["Empreendimento"].astype(str).str.strip()
+                    df_xl["Unidade"]        = df_xl["Unidade"].astype(str).str.strip()
+                    df_xl = df_xl[
+                        df_xl["Empreendimento"].ne("") & df_xl["Empreendimento"].ne("nan") &
+                        df_xl["Unidade"].ne("")        & df_xl["Unidade"].ne("nan")
+                    ]
+
+                    st.success(f"✅ **{len(df_xl)}** linhas válidas encontradas na aba **{aba}**.")
                     st.dataframe(
                         df_xl[["Empreendimento", "Unidade"]].head(10),
                         use_container_width=True,
                         hide_index=True,
                     )
-                    if st.button("IMPORTAR PARA O BANCO", type="primary", key="emp_btn_importar"):
-                        inseridos, ignorados = importar_empreendimentos_xlsx(
-                            df_xl[["Empreendimento", "Unidade"]]
-                        )
+
+                    if st.button("📥 IMPORTAR PARA O BANCO", type="primary", key="emp_btn_importar"):
+                        with st.spinner("Importando..."):
+                            inseridos, ignorados = importar_empreendimentos_xlsx(
+                                df_xl[["Empreendimento", "Unidade"]]
+                            )
                         st.success(
                             f"✅ Importação concluída: "
                             f"**{inseridos}** inseridos, **{ignorados}** ignorados (duplicatas)."
                         )
                         st.rerun()
                 else:
+                    cols_encontradas = ", ".join(df_xl.columns.tolist())
                     st.error(
-                        "Colunas **Empreendimento** e **Unidade** não encontradas. "
-                        "Verifique os nomes das colunas na planilha."
+                        f"Colunas **Empreendimento** e **Unidade** não encontradas. "
+                        f"Colunas detectadas: `{cols_encontradas}`. "
+                        f"Renomeie as colunas na planilha e tente novamente."
                     )
+
             except Exception as e:
                 st.error(f"Erro ao ler o arquivo: {e}")
 
