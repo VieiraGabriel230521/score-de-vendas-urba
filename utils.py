@@ -80,25 +80,17 @@ LIMITE_MODERADO = 33
 # ============================================================
 
 def brl(valor) -> str:
-    """Formata um número como moeda brasileira. Ex: 1234.5 → R$ 1.234,50"""
     try:
         return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
         return "—"
 
 
-def formatar_cpf(digitos: str) -> str:
-    """Formata 11 dígitos como CPF. Ex: 12345678901 → 123.456.789-01"""
-    return f"{digitos[:3]}.{digitos[3:6]}.{digitos[6:9]}-{digitos[9:]}"
-
-
 def float_para_moeda_input(v) -> str:
-    """Converte float para string no formato de input de moeda. Ex: 1234.5 → 1.234,50"""
     return f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def moeda_para_float(valor) -> float:
-    """Converte string de moeda brasileira para float. Ex: R$ 1.234,50 → 1234.5"""
     if valor is None:
         return 0.0
     s = str(valor).strip().replace("R$", "").replace(" ", "")
@@ -116,7 +108,6 @@ def moeda_para_float(valor) -> float:
 
 
 def normalizar_texto(texto: str) -> str:
-    """Remove acentos, normaliza espaços e converte para maiúsculas."""
     texto = texto or ""
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
@@ -136,10 +127,6 @@ def _normalizar_campo_moeda(chave: str) -> None:
 
 
 def campo_moeda(label: str, chave: str, valor_inicial: float = 0.0, ajuda: str = None) -> float:
-    """
-    Widget de input formatado como moeda brasileira.
-    Retorna o valor como float.
-    """
     if chave not in st.session_state:
         st.session_state[chave] = float_para_moeda_input(valor_inicial)
 
@@ -159,7 +146,6 @@ def campo_moeda(label: str, chave: str, valor_inicial: float = 0.0, ajuda: str =
 # ============================================================
 
 def calcular_idade(nascimento) -> int:
-    """Calcula a idade a partir da data de nascimento."""
     hoje = datetime.now(TIMEZONE_BRASILIA).date()
     return (
         hoje.year - nascimento.year
@@ -168,7 +154,6 @@ def calcular_idade(nascimento) -> int:
 
 
 def faixa_etaria(idade: int) -> str:
-    """Retorna a faixa etária a partir da idade."""
     if idade <= 25: return "ATÉ 25 ANOS"
     if idade <= 35: return "25 A 35 ANOS"
     if idade <= 45: return "35 A 45 ANOS"
@@ -177,7 +162,6 @@ def faixa_etaria(idade: int) -> str:
 
 
 def faixa_comprometimento(percentual: float) -> str:
-    """Retorna a faixa de comprometimento de renda."""
     if percentual <= 10:  return "ATÉ 10%"
     if percentual <= 20:  return "10% A 20%"
     if percentual <= 30:  return "20% A 30%"
@@ -187,7 +171,6 @@ def faixa_comprometimento(percentual: float) -> str:
 
 
 def faixa_ato(percentual: float) -> str:
-    """Retorna a faixa do ato em relação ao valor da proposta."""
     if percentual > 4:  return "ACIMA DE 4%"
     if percentual >= 3: return "3% A 4%"
     if percentual >= 2: return "2% A 3%"
@@ -196,7 +179,6 @@ def faixa_ato(percentual: float) -> str:
 
 
 def mapear_score(letra: str):
-    """Converte letra do score SPC para faixa. Ex: 'A' → 'A - B'"""
     letra = (letra or "").strip().upper()
     if letra in ("A", "B"): return "A - B"
     if letra in ("C", "D"): return "C - D"
@@ -205,7 +187,6 @@ def mapear_score(letra: str):
 
 
 def normalizar_estado_civil(ec: str) -> str:
-    """Normaliza o estado civil para o padrão do sistema."""
     ec = str(ec or "").strip().upper()
     if "CASAD"  in ec: return "CASADO(A)"
     if "DIVORC" in ec: return "DIVORCIADO(A)"
@@ -223,10 +204,6 @@ def calcular_notas(
     faixa_idade: str,
     estado_civil: str,
 ) -> dict:
-    """
-    Monta o dicionário de notas para cada variável do score.
-    Retorna dict com as notas individuais.
-    """
     return {
         "score_credito":         NOTAS_SCORE.get(score_proponente, 0),
         "ato":                   NOTAS_ATO.get(faixa_at, 0),
@@ -237,15 +214,10 @@ def calcular_notas(
 
 
 def calcular_score_total(notas: dict) -> int:
-    """Calcula o score total ponderado."""
     return sum(notas[k] * PESOS[k] for k in PESOS)
 
 
 def classificar_score(score: int) -> tuple[str, str]:
-    """
-    Classifica o score em risco.
-    Retorna (classificacao, cor) onde cor é 'green', 'orange' ou 'red'.
-    """
     if score >= LIMITE_BAIXO:    return "BAIXO RISCO",    "green"
     if score >= LIMITE_MODERADO: return "RISCO MODERADO", "orange"
     return "ALTO RISCO", "red"
@@ -253,13 +225,18 @@ def classificar_score(score: int) -> tuple[str, str]:
 
 # ============================================================
 # EXTRAÇÃO DO SPC (PDF)
+# SEGURANÇA: CPF NÃO É EXTRAÍDO NEM ARMAZENADO
+# Extraímos apenas: nome completo, score, renda, data nascimento
 # ============================================================
 
 def extrair_dados_spc(pdf_file) -> dict:
     """
     Extrai dados do relatório SPC a partir de um arquivo PDF.
     Retorna dict com: score_letra, score_faixa, renda_presumida,
-                      data_nascimento, cpf, texto_extraido.
+                      data_nascimento, nome_completo, texto_extraido.
+
+    IMPORTANTE: CPF não é extraído nem retornado por política de
+    proteção de dados. Nenhum dado de CPF é armazenado no sistema.
     """
     pdf_file.seek(0)
     paginas = []
@@ -293,7 +270,6 @@ def extrair_dados_spc(pdf_file) -> dict:
     # ── Renda presumida ──
     renda = None
 
-    # Tenta nas tabelas primeiro
     for _, tabela in tabelas:
         for linha in tabela:
             celulas   = [normalizar_texto(str(x)) if x is not None else "" for x in linha]
@@ -309,7 +285,6 @@ def extrair_dados_spc(pdf_file) -> dict:
         if renda and renda > 0:
             break
 
-    # Fallback: busca no texto corrido
     if not renda:
         for padrao in [
             r"RENDA\s+PRESUMIDA\s*-\s*SPC\s+BRASIL[\s\S]{0,160}?"
@@ -342,26 +317,50 @@ def extrair_dados_spc(pdf_file) -> dict:
             except Exception:
                 pass
 
-    # ── CPF ──
-    cpf = None
+    # ── Nome Completo ──
+    # Extraímos o nome para identificação amigável, SEM CPF
+    nome_completo = None
     for padrao in [
-        r"\bCPF\s*[:\-]?\s*(\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-\/]?\d{2})\b",
-        r"\b(\d{3}\.\d{3}\.\d{3}[-\/]\d{2})\b",
+        r"(?:NOME\s+COMPLETO|NOME\s+DO\s+CONSUMIDOR|NOME\s+DO\s+CLIENTE|NOME)\s*[:\-]?\s*([A-Z][A-Z\s]{5,60}?)(?:\n|DATA|CPF|NASCIMENTO|$)",
+        r"(?:CONSULTA\s+REALIZADA\s+PARA|RELATORIO\s+DE)\s*[:\-]?\s*([A-Z][A-Z\s]{5,60}?)(?:\n|CPF|DATA|$)",
     ]:
-        m = re.search(padrao, texto_norm, flags=re.I)
+        m = re.search(padrao, texto_norm, flags=re.I | re.MULTILINE)
         if m:
-            digitos = re.sub(r"\D", "", m.group(1))
-            if len(digitos) == 11:
-                cpf = formatar_cpf(digitos)
+            candidato = m.group(1).strip()
+            # Filtra resultados que parecem ser nomes válidos (2+ palavras, sem números)
+            palavras = candidato.split()
+            if len(palavras) >= 2 and not any(c.isdigit() for c in candidato):
+                nome_completo = " ".join(palavras[:5])  # máximo 5 palavras
+                break
+
+    # Fallback: tenta pegar o nome nas primeiras linhas do PDF
+    if not nome_completo:
+        for linha in texto_completo.split("\n")[:20]:
+            linha_norm = normalizar_texto(linha)
+            # Linha com 2-5 palavras, só letras, sem palavras-chave do SPC
+            palavras = linha_norm.split()
+            palavras_chave_spc = {
+                "SPC", "BRASIL", "RELATORIO", "CONSULTA", "SCORE",
+                "CREDITO", "SERASA", "CNPJ", "CPF", "DATA", "RENDA",
+                "PAGINA", "EMISSAO", "VALIDADE", "CADASTRO"
+            }
+            if (
+                2 <= len(palavras) <= 6
+                and not any(c.isdigit() for c in linha_norm)
+                and not any(p in palavras_chave_spc for p in palavras)
+                and len(linha_norm) >= 8
+            ):
+                nome_completo = linha_norm.strip()
                 break
 
     return {
-        "score_letra":    score_letra,
-        "score_faixa":    score_faixa,
+        "score_letra":     score_letra,
+        "score_faixa":     score_faixa,
         "renda_presumida": renda,
         "data_nascimento": data_nascimento,
-        "cpf":            cpf,
-        "texto_extraido": texto_completo,
+        "nome_completo":   nome_completo,   # ← substitui CPF
+        "texto_extraido":  texto_completo,
+        # CPF removido por política de proteção de dados
     }
 
 
@@ -377,13 +376,8 @@ def montar_cenarios(
     ato:            float,
     valor_proposta: float,
 ) -> list[dict]:
-    """
-    Gera sugestões de ajuste para melhorar o score.
-    Retorna lista de cenários ordenados por impacto.
-    """
     cenarios = []
 
-    # ── Cenários de Ato ──
     for pct_meta, faixa_meta in [
         (1.00, "1% A 2%"),
         (2.00, "2% A 3%"),
@@ -406,7 +400,6 @@ def montar_cenarios(
                 "NovoScore": score_atual + ganho,
             })
 
-    # ── Cenários de Comprometimento ──
     for limite, faixa_meta in [
         (50,  "30% A 50%"),
         (30,  "20% A 30%"),
@@ -430,7 +423,6 @@ def montar_cenarios(
                 "NovoScore": score_atual + ganho,
             })
 
-    # ── Enriquece com classificação resultante ──
     for c in cenarios:
         classificacao, _ = classificar_score(c["NovoScore"])
         c["NovaClassificacao"] = (
@@ -441,7 +433,6 @@ def montar_cenarios(
         c["AtingeModerado"] = c["NovoScore"] >= LIMITE_MODERADO
         c["AtingeBaixo"]    = c["NovoScore"] >= LIMITE_BAIXO
 
-    # Ordena: prioriza quem atinge moderado → baixo → maior ganho
     return sorted(
         cenarios,
         key=lambda c: (
@@ -457,7 +448,6 @@ def montar_cenarios(
 # ============================================================
 
 def chave_coluna(nome: str) -> str:
-    """Normaliza nome de coluna para comparação."""
     nome = str(nome or "").strip()
     nome = unicodedata.normalize("NFKD", nome)
     nome = "".join(c for c in nome if not unicodedata.combining(c))
@@ -468,10 +458,6 @@ def chave_coluna(nome: str) -> str:
 
 
 def mapear_colunas_xlsx(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Tenta mapear colunas de um Excel para os nomes padrão
-    'Empreendimento' e 'Unidade'.
-    """
     mapa = {}
     for col in df.columns:
         ck = chave_coluna(col)
@@ -483,10 +469,6 @@ def mapear_colunas_xlsx(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def rotulo_unidade(unidade: str, empreendimento: str) -> str:
-    """
-    Remove o prefixo do empreendimento do nome da unidade
-    para exibição mais limpa no selectbox.
-    """
     texto = str(unidade or "").strip()
     emp   = str(empreendimento or "").strip()
     if emp and texto.upper().startswith(emp.upper()):
