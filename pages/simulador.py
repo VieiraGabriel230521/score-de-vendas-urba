@@ -1,7 +1,8 @@
+from __future__ import annotations
 # pages/simulador.py
 # Score de Vendas Urba — Página do simulador
-
-from __future__ import annotations
+# SEGURANÇA: CPF não é extraído, exibido nem armazenado.
+# Identificação do cliente feita apenas por Nome Completo.
 
 import pandas as pd
 import streamlit as st
@@ -27,6 +28,25 @@ from utils import (
     montar_cenarios,
     rotulo_unidade,
 )
+
+
+def _limpar_formulario() -> None:
+    """Limpa todos os campos do formulário do simulador do session_state."""
+    chaves = [
+        "sim_empreendimento", "sim_unidade",
+        "sim_pdf_prop", "sim_score_manual", "sim_renda_manual",
+        "sim_estado_civil",
+        "sim_ato_urba", "sim_valor_proposta", "sim_primeira_mensal",
+        "sim_qtd_adicionais",
+        "resultado",
+    ]
+    # Remove campos de clientes adicionais (até 4)
+    for i in range(2, 6):
+        chaves += [f"sim_pdf_add_{i}", f"sim_renda_add_manual_{i}"]
+
+    for chave in chaves:
+        if chave in st.session_state:
+            del st.session_state[chave]
 
 
 def pagina_simulador(usuario: dict) -> None:
@@ -97,12 +117,13 @@ def pagina_simulador(usuario: dict) -> None:
             key="sim_pdf_prop",
         )
 
-        score_proponente = None
-        renda_proponente = 0.0
-        nascimento       = None
-        idade            = None
-        faixa_idade      = None
-        cpf_proponente   = ""
+        # Defaults
+        score_proponente  = None
+        renda_proponente  = 0.0
+        nascimento        = None
+        idade             = None
+        faixa_idade       = None
+        nome_proponente   = ""   # ← substitui CPF
 
         if pdf_prop:
             try:
@@ -112,7 +133,8 @@ def pagina_simulador(usuario: dict) -> None:
                 score_proponente = dados.get("score_faixa")
                 renda_proponente = float(dados.get("renda_presumida") or 0)
                 nascimento       = dados.get("data_nascimento")
-                cpf_proponente   = dados.get("cpf") or ""
+                nome_proponente  = dados.get("nome_completo") or ""
+                # CPF não é lido nem armazenado
 
                 if nascimento:
                     idade       = calcular_idade(nascimento)
@@ -127,8 +149,9 @@ def pagina_simulador(usuario: dict) -> None:
                 """, unsafe_allow_html=True)
 
                 with st.container(border=True):
-                    st.caption("CPF do Proponente")
-                    st.markdown(f"**{cpf_proponente}**" if cpf_proponente else "*Não localizado*")
+                    st.caption("Nome do Proponente")
+                    st.markdown(f"**{nome_proponente}**" if nome_proponente else "*Não localizado*")
+
                     if nascimento:
                         st.caption("Data de Nascimento")
                         st.markdown(
@@ -137,24 +160,28 @@ def pagina_simulador(usuario: dict) -> None:
                         )
                     else:
                         st.warning("Data de nascimento não localizada.")
+
                     st.caption("Score SPC")
                     st.markdown(
                         f"**{dados.get('score_letra') or '—'} → {score_proponente}**"
                         if score_proponente else "*Não localizado*"
                     )
+
                     st.caption("Renda Presumida")
                     st.markdown(
                         f"**{brl(renda_proponente)}**"
                         if renda_proponente > 0 else "*Não localizada*"
                     )
+
             except Exception as e:
                 st.error(f"Falha na leitura do SPC: {e}")
 
-        if pdf_prop and not cpf_proponente:
-            cpf_proponente = st.text_input(
-                "CPF — preenchimento manual",
-                placeholder="000.000.000-00",
-                key="sim_cpf_manual",
+        # Preenchimento manual do nome quando não extraído
+        if pdf_prop and not nome_proponente:
+            nome_proponente = st.text_input(
+                "Nome do Proponente — preenchimento manual",
+                placeholder="Nome completo",
+                key="sim_nome_manual",
             ).strip()
 
         if pdf_prop and not score_proponente:
@@ -278,7 +305,7 @@ def pagina_simulador(usuario: dict) -> None:
             "cor":                     cor,
             "empreendimento":          empreendimento,
             "unidade":                 unidade,
-            "cpf_proponente":          cpf_proponente,
+            "nome_proponente":         nome_proponente,   # ← era cpf_proponente
             "idade":                   idade,
             "faixa_idade":             faixa_idade,
             "estado_civil":            estado_civil,
@@ -297,7 +324,7 @@ def pagina_simulador(usuario: dict) -> None:
         }
 
     # ── Resultado ────────────────────────────────────────────
-    if not st.session_state.resultado:
+    if not st.session_state.get("resultado"):
         return
 
     d = st.session_state.resultado
@@ -307,22 +334,22 @@ def pagina_simulador(usuario: dict) -> None:
     secao_titulo("📊", "Resumo da Simulação")
 
     r1, r2, r3, r4 = st.columns(4)
-    r1.markdown(card_resumo("Empreendimento",    d.get("empreendimento", "—")), unsafe_allow_html=True)
-    r2.markdown(card_resumo("Unidade",           rotulo_unidade(d.get("unidade",""), d.get("empreendimento",""))), unsafe_allow_html=True)
-    r3.markdown(card_resumo("CPF do Proponente", d.get("cpf_proponente") or "—"), unsafe_allow_html=True)
-    r4.markdown(card_resumo("Renda Total",       brl(d.get("renda_total", 0))), unsafe_allow_html=True)
+    r1.markdown(card_resumo("Empreendimento",   d.get("empreendimento", "—")),                                              unsafe_allow_html=True)
+    r2.markdown(card_resumo("Unidade",          rotulo_unidade(d.get("unidade",""), d.get("empreendimento",""))),           unsafe_allow_html=True)
+    r3.markdown(card_resumo("Nome do Proponente", d.get("nome_proponente") or "—"),                                         unsafe_allow_html=True)
+    r4.markdown(card_resumo("Renda Total",      brl(d.get("renda_total", 0))),                                              unsafe_allow_html=True)
 
     s1, s2, s3, s4 = st.columns(4)
-    s1.markdown(card_resumo("Faixa Etária",        d.get("faixa_idade") or "—"),     unsafe_allow_html=True)
-    s2.markdown(card_resumo("Estado Civil",         d.get("estado_civil") or "—"),    unsafe_allow_html=True)
-    s3.markdown(card_resumo("Score do Proponente",  d.get("score_proponente") or "—"),unsafe_allow_html=True)
-    s4.markdown(card_resumo("Ato Urba",             brl(d.get("ato_urba", 0))),       unsafe_allow_html=True)
+    s1.markdown(card_resumo("Faixa Etária",        d.get("faixa_idade") or "—"),      unsafe_allow_html=True)
+    s2.markdown(card_resumo("Estado Civil",         d.get("estado_civil") or "—"),     unsafe_allow_html=True)
+    s3.markdown(card_resumo("Score do Proponente",  d.get("score_proponente") or "—"), unsafe_allow_html=True)
+    s4.markdown(card_resumo("Ato Urba",             brl(d.get("ato_urba", 0))),        unsafe_allow_html=True)
 
     t1, t2, t3, t4 = st.columns(4)
-    t1.markdown(card_resumo("% do Ato",          f"{d.get('perc_ato',0):.2f}%"),   unsafe_allow_html=True)
-    t2.markdown(card_resumo("1ª Mensal",          brl(d.get("primeira_mensal",0))), unsafe_allow_html=True)
-    t3.markdown(card_resumo("Comprometimento",    f"{d.get('perc_comp',0):.2f}%"), unsafe_allow_html=True)
-    t4.markdown(card_resumo("Valor da Proposta",  brl(d.get("valor_proposta",0))),  unsafe_allow_html=True)
+    t1.markdown(card_resumo("% do Ato",          f"{d.get('perc_ato',0):.2f}%"),    unsafe_allow_html=True)
+    t2.markdown(card_resumo("1ª Mensal",          brl(d.get("primeira_mensal",0))),  unsafe_allow_html=True)
+    t3.markdown(card_resumo("Comprometimento",    f"{d.get('perc_comp',0):.2f}%"),   unsafe_allow_html=True)
+    t4.markdown(card_resumo("Valor da Proposta",  brl(d.get("valor_proposta",0))),   unsafe_allow_html=True)
 
     # ── Avaliação de Risco ───────────────────────────────────
     st.divider()
@@ -452,5 +479,8 @@ def pagina_simulador(usuario: dict) -> None:
         try:
             salvar_simulacao(d, usuario["email"], usuario["nome"])
             st.success("✅ Simulação salva com sucesso no histórico.")
+            # ── Limpa o formulário após salvar ──────────────
+            _limpar_formulario()
+            st.rerun()
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
