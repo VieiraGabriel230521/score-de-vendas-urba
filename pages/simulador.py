@@ -12,7 +12,6 @@ from styles import card_resumo, col_header, secao_titulo
 from utils import (
     LIMITE_BAIXO,
     LIMITE_MODERADO,
-    NOTAS_ESTADO_CIVIL,
     PESOS,
     SCORE_MAX,
     brl,
@@ -31,25 +30,24 @@ from utils import (
 
 
 def _limpar_formulario() -> None:
-    """Limpa todos os campos do formulário do simulador do session_state."""
-    chaves = [
-        "sim_empreendimento", "sim_unidade",
-        "sim_pdf_prop", "sim_score_manual", "sim_renda_manual",
-        "sim_estado_civil",
-        "sim_ato_urba", "sim_valor_proposta", "sim_primeira_mensal",
-        "sim_qtd_adicionais",
-        "resultado",
-    ]
-    # Remove campos de clientes adicionais (até 4)
-    for i in range(2, 6):
-        chaves += [f"sim_pdf_add_{i}", f"sim_renda_add_manual_{i}"]
-
-    for chave in chaves:
-        if chave in st.session_state:
-            del st.session_state[chave]
+    """
+    Incrementa o contador de versão — isso muda as keys de TODOS os widgets,
+    forçando o Streamlit a recriá-los do zero (valores zerados).
+    """
+    st.session_state["sim_versao"] = st.session_state.get("sim_versao", 0) + 1
+    st.session_state["resultado"]  = None
 
 
 def pagina_simulador(usuario: dict) -> None:
+
+    # ── Inicializa controles de estado ───────────────────────
+    if "sim_versao" not in st.session_state:
+        st.session_state["sim_versao"] = 0
+    if "resultado" not in st.session_state:
+        st.session_state["resultado"] = None
+
+    # v é sufixo único de todas as keys — muda ao limpar
+    v = st.session_state["sim_versao"]
 
     # ── Título da seção ──────────────────────────────────────
     secao_titulo("🧮", "Dados da Simulação",
@@ -79,7 +77,7 @@ def pagina_simulador(usuario: dict) -> None:
                 "Empreendimento *",
                 [""] + empreendimentos,
                 index=0,
-                key="sim_empreendimento",
+                key=f"sim_empreendimento_{v}",
             )
             if empreendimento:
                 unidades = sorted(
@@ -100,8 +98,8 @@ def pagina_simulador(usuario: dict) -> None:
                 [""] + unidades,
                 index=0,
                 disabled=not bool(empreendimento),
-                key="sim_unidade",
-                format_func=lambda v: rotulo_unidade(v, empreendimento) if v else "Selecione a unidade",
+                key=f"sim_unidade_{v}",
+                format_func=lambda val: rotulo_unidade(val, empreendimento) if val else "Selecione a unidade",
             )
             if unidade:
                 st.caption(f"📍 {rotulo_unidade(unidade, empreendimento)}")
@@ -114,16 +112,16 @@ def pagina_simulador(usuario: dict) -> None:
         pdf_prop = st.file_uploader(
             "SPC do Proponente *",
             type=["pdf"],
-            key="sim_pdf_prop",
+            key=f"sim_pdf_prop_{v}",
         )
 
         # Defaults
-        score_proponente  = None
-        renda_proponente  = 0.0
-        nascimento        = None
-        idade             = None
-        faixa_idade       = None
-        nome_proponente   = ""   # ← substitui CPF
+        score_proponente = None
+        renda_proponente = 0.0
+        nascimento       = None
+        idade            = None
+        faixa_idade      = None
+        nome_proponente  = ""
 
         if pdf_prop:
             try:
@@ -134,7 +132,6 @@ def pagina_simulador(usuario: dict) -> None:
                 renda_proponente = float(dados.get("renda_presumida") or 0)
                 nascimento       = dados.get("data_nascimento")
                 nome_proponente  = dados.get("nome_completo") or ""
-                # CPF não é lido nem armazenado
 
                 if nascimento:
                     idade       = calcular_idade(nascimento)
@@ -176,41 +173,41 @@ def pagina_simulador(usuario: dict) -> None:
             except Exception as e:
                 st.error(f"Falha na leitura do SPC: {e}")
 
-        # Preenchimento manual do nome quando não extraído
+        # Preenchimento manual quando não extraído
         if pdf_prop and not nome_proponente:
             nome_proponente = st.text_input(
                 "Nome do Proponente — preenchimento manual",
                 placeholder="Nome completo",
-                key="sim_nome_manual",
+                key=f"sim_nome_manual_{v}",
             ).strip()
 
         if pdf_prop and not score_proponente:
             score_proponente = st.selectbox(
                 "Score SPC — preenchimento manual",
                 ["", "A - B", "C - D", "E - F"],
-                key="sim_score_manual",
+                key=f"sim_score_manual_{v}",
             ) or None
 
         if pdf_prop and renda_proponente <= 0:
             renda_proponente = campo_moeda(
                 "Renda Presumida — manual (R$)",
-                "sim_renda_manual",
+                f"sim_renda_manual_{v}",
             )
 
         estado_civil = st.selectbox(
             "Estado Civil *",
             ["", "SOLTEIRO(A)", "DIVORCIADO(A)", "CASADO(A)"],
             index=0,
-            key="sim_estado_civil",
+            key=f"sim_estado_civil_{v}",
         )
 
     # ── DADOS DA PROPOSTA ────────────────────────────────────
     with col_proposta:
         col_header("📋", "Dados da Proposta")
 
-        ato_urba        = campo_moeda("Ato Urba (R$) *",                      "sim_ato_urba")
-        valor_proposta  = campo_moeda("Valor da Proposta / Líquido CV (R$) *", "sim_valor_proposta")
-        primeira_mensal = campo_moeda("Valor da 1ª Mensal (R$) *",             "sim_primeira_mensal")
+        ato_urba        = campo_moeda("Ato Urba (R$) *",                      f"sim_ato_urba_{v}")
+        valor_proposta  = campo_moeda("Valor da Proposta / Líquido CV (R$) *", f"sim_valor_proposta_{v}")
+        primeira_mensal = campo_moeda("Valor da 1ª Mensal (R$) *",             f"sim_primeira_mensal_{v}")
 
     # ── COMPOSIÇÃO DE RENDA ──────────────────────────────────
     with col_renda:
@@ -221,17 +218,17 @@ def pagina_simulador(usuario: dict) -> None:
             "Clientes adicionais",
             min_value=0, max_value=4,
             value=0, step=1,
-            key="sim_qtd_adicionais",
+            key=f"sim_qtd_adicionais_{v}",
         )
 
         rendas_adicionais = []
         for i in range(int(qtd_adicionais)):
             numero = i + 2
             with st.expander(f"👤 Cliente {numero}", expanded=True):
-                pdf_add   = st.file_uploader(
+                pdf_add = st.file_uploader(
                     f"SPC — Cliente {numero}",
                     type=["pdf"],
-                    key=f"sim_pdf_add_{numero}",
+                    key=f"sim_pdf_add_{numero}_{v}",
                 )
                 renda_add = 0.0
                 if pdf_add:
@@ -247,7 +244,7 @@ def pagina_simulador(usuario: dict) -> None:
                 if pdf_add and renda_add <= 0:
                     renda_add = campo_moeda(
                         f"Renda manual — Cliente {numero} (R$)",
-                        f"sim_renda_add_manual_{numero}",
+                        f"sim_renda_add_manual_{numero}_{v}",
                     )
                 rendas_adicionais.append(renda_add)
 
@@ -289,7 +286,7 @@ def pagina_simulador(usuario: dict) -> None:
             type="primary",
             use_container_width=True,
             disabled=bool(faltando),
-            key="sim_calcular",
+            key=f"sim_calcular_{v}",
         )
 
     # ── Cálculo do score ─────────────────────────────────────
@@ -298,14 +295,14 @@ def pagina_simulador(usuario: dict) -> None:
         score_final   = calcular_score_total(notas)
         classificacao, cor = classificar_score(score_final)
 
-        st.session_state.resultado = {
+        st.session_state["resultado"] = {
             "notas":                   notas,
             "score_final":             score_final,
             "classificacao":           classificacao,
             "cor":                     cor,
             "empreendimento":          empreendimento,
             "unidade":                 unidade,
-            "nome_proponente":         nome_proponente,   # ← era cpf_proponente
+            "nome_proponente":         nome_proponente,
             "idade":                   idade,
             "faixa_idade":             faixa_idade,
             "estado_civil":            estado_civil,
@@ -327,29 +324,29 @@ def pagina_simulador(usuario: dict) -> None:
     if not st.session_state.get("resultado"):
         return
 
-    d = st.session_state.resultado
+    d = st.session_state["resultado"]
     st.divider()
 
     # ── Resumo ───────────────────────────────────────────────
     secao_titulo("📊", "Resumo da Simulação")
 
     r1, r2, r3, r4 = st.columns(4)
-    r1.markdown(card_resumo("Empreendimento",   d.get("empreendimento", "—")),                                              unsafe_allow_html=True)
-    r2.markdown(card_resumo("Unidade",          rotulo_unidade(d.get("unidade",""), d.get("empreendimento",""))),           unsafe_allow_html=True)
-    r3.markdown(card_resumo("Nome do Proponente", d.get("nome_proponente") or "—"),                                         unsafe_allow_html=True)
-    r4.markdown(card_resumo("Renda Total",      brl(d.get("renda_total", 0))),                                              unsafe_allow_html=True)
+    r1.markdown(card_resumo("Empreendimento",     d.get("empreendimento", "—")),                                    unsafe_allow_html=True)
+    r2.markdown(card_resumo("Unidade",            rotulo_unidade(d.get("unidade",""), d.get("empreendimento",""))), unsafe_allow_html=True)
+    r3.markdown(card_resumo("Nome do Proponente", d.get("nome_proponente") or "—"),                                 unsafe_allow_html=True)
+    r4.markdown(card_resumo("Renda Total",        brl(d.get("renda_total", 0))),                                    unsafe_allow_html=True)
 
     s1, s2, s3, s4 = st.columns(4)
-    s1.markdown(card_resumo("Faixa Etária",        d.get("faixa_idade") or "—"),      unsafe_allow_html=True)
-    s2.markdown(card_resumo("Estado Civil",         d.get("estado_civil") or "—"),     unsafe_allow_html=True)
-    s3.markdown(card_resumo("Score do Proponente",  d.get("score_proponente") or "—"), unsafe_allow_html=True)
-    s4.markdown(card_resumo("Ato Urba",             brl(d.get("ato_urba", 0))),        unsafe_allow_html=True)
+    s1.markdown(card_resumo("Faixa Etária",       d.get("faixa_idade") or "—"),      unsafe_allow_html=True)
+    s2.markdown(card_resumo("Estado Civil",        d.get("estado_civil") or "—"),     unsafe_allow_html=True)
+    s3.markdown(card_resumo("Score do Proponente", d.get("score_proponente") or "—"), unsafe_allow_html=True)
+    s4.markdown(card_resumo("Ato Urba",            brl(d.get("ato_urba", 0))),        unsafe_allow_html=True)
 
     t1, t2, t3, t4 = st.columns(4)
-    t1.markdown(card_resumo("% do Ato",          f"{d.get('perc_ato',0):.2f}%"),    unsafe_allow_html=True)
-    t2.markdown(card_resumo("1ª Mensal",          brl(d.get("primeira_mensal",0))),  unsafe_allow_html=True)
-    t3.markdown(card_resumo("Comprometimento",    f"{d.get('perc_comp',0):.2f}%"),   unsafe_allow_html=True)
-    t4.markdown(card_resumo("Valor da Proposta",  brl(d.get("valor_proposta",0))),   unsafe_allow_html=True)
+    t1.markdown(card_resumo("% do Ato",         f"{d.get('perc_ato',0):.2f}%"),   unsafe_allow_html=True)
+    t2.markdown(card_resumo("1ª Mensal",         brl(d.get("primeira_mensal",0))), unsafe_allow_html=True)
+    t3.markdown(card_resumo("Comprometimento",   f"{d.get('perc_comp',0):.2f}%"),  unsafe_allow_html=True)
+    t4.markdown(card_resumo("Valor da Proposta", brl(d.get("valor_proposta",0))),  unsafe_allow_html=True)
 
     # ── Avaliação de Risco ───────────────────────────────────
     st.divider()
@@ -471,16 +468,28 @@ def pagina_simulador(usuario: dict) -> None:
     secao_titulo("💾", "Salvar Simulação",
                  "Registra esta simulação no histórico administrativo.")
 
-    if st.button(
-        "✅ CONFIRMAR E SALVAR NO HISTÓRICO",
-        type="primary",
-        key="sim_salvar",
-    ):
-        try:
-            salvar_simulacao(d, usuario["email"], usuario["nome"])
-            st.success("✅ Simulação salva com sucesso no histórico.")
-            # ── Limpa o formulário após salvar ──────────────
+    col_salvar, col_nova = st.columns(2)
+
+    with col_salvar:
+        if st.button(
+            "✅ CONFIRMAR E SALVAR NO HISTÓRICO",
+            type="primary",
+            use_container_width=True,
+            key=f"sim_salvar_{v}",
+        ):
+            try:
+                salvar_simulacao(d, usuario["email"], usuario["nome"])
+                st.success("✅ Simulação salva com sucesso!")
+                _limpar_formulario()   # incrementa sim_versao → novas keys
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao salvar: {e}")
+
+    with col_nova:
+        if st.button(
+            "🔄 NOVA SIMULAÇÃO (sem salvar)",
+            use_container_width=True,
+            key=f"sim_nova_{v}",
+        ):
             _limpar_formulario()
             st.rerun()
-        except Exception as e:
-            st.error(f"Erro ao salvar: {e}")
