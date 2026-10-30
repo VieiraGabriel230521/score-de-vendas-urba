@@ -2,6 +2,7 @@ from __future__ import annotations
 # db.py
 # Score de Vendas Urba
 # Módulo de conexão com Neon (PostgreSQL) + todas as funções de banco
+# SEGURANÇA: CPF removido de todas as operações de banco de dados
 
 import json
 from datetime import datetime
@@ -19,7 +20,6 @@ TIMEZONE_BRASILIA = ZoneInfo("America/Sao_Paulo")
 # ============================================================
 
 def get_conn():
-    """Retorna uma conexão com o banco Neon."""
     return psycopg2.connect(
         st.secrets["NEON_DATABASE_URL"],
         cursor_factory=psycopg2.extras.RealDictCursor,
@@ -30,6 +30,7 @@ def init_db():
     """
     Garante que todas as tabelas existam.
     Executado uma vez na inicialização do app.
+    NOTA: cpf_proponente foi removido — substituído por nome_proponente.
     """
     sql = """
         -- USUARIOS
@@ -56,6 +57,8 @@ def init_db():
         );
 
         -- HISTORICO
+        -- CPF removido por política de proteção de dados
+        -- Substituído por nome_proponente (dado não sensível)
         CREATE TABLE IF NOT EXISTS historico_simulacoes (
             id                          SERIAL PRIMARY KEY,
             data_hora                   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -63,7 +66,7 @@ def init_db():
             vendedor_nome               TEXT,
             empreendimento              TEXT,
             unidade                     TEXT,
-            cpf_proponente              TEXT,
+            nome_proponente             TEXT,
             idade                       INT,
             faixa_etaria                TEXT,
             estado_civil                TEXT,
@@ -83,6 +86,30 @@ def init_db():
             classificacao               TEXT,
             notas_json                  JSONB
         );
+
+        -- Remove coluna cpf_proponente se ainda existir (migração segura)
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'historico_simulacoes'
+                AND column_name = 'cpf_proponente'
+            ) THEN
+                ALTER TABLE historico_simulacoes DROP COLUMN cpf_proponente;
+            END IF;
+        END $$;
+
+        -- Adiciona nome_proponente se não existir (migração segura)
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'historico_simulacoes'
+                AND column_name = 'nome_proponente'
+            ) THEN
+                ALTER TABLE historico_simulacoes ADD COLUMN nome_proponente TEXT;
+            END IF;
+        END $$;
 
         -- ÍNDICES
         CREATE INDEX IF NOT EXISTS idx_usuarios_email
@@ -124,10 +151,6 @@ def init_db():
 # ============================================================
 
 def autenticar_usuario(email: str, senha: str):
-    """
-    Verifica e-mail e senha.
-    Retorna dict com dados do usuário ou None se inválido.
-    """
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -165,7 +188,6 @@ def autenticar_usuario(email: str, senha: str):
 # ============================================================
 
 def listar_usuarios() -> pd.DataFrame:
-    """Retorna todos os usuários ordenados por data de criação."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -180,7 +202,6 @@ def listar_usuarios() -> pd.DataFrame:
 
 
 def criar_usuario(nome: str, email: str, senha: str, perfil: str) -> None:
-    """Cria um novo usuário com senha hasheada."""
     senha_hash = bcrypt.hashpw(
         senha.encode("utf-8"),
         bcrypt.gensalt(12)
@@ -199,7 +220,6 @@ def criar_usuario(nome: str, email: str, senha: str, perfil: str) -> None:
 
 
 def atualizar_usuario(uid: int, nome: str, perfil: str, ativo: bool) -> None:
-    """Atualiza nome, perfil e status de um usuário."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -214,7 +234,6 @@ def atualizar_usuario(uid: int, nome: str, perfil: str, ativo: bool) -> None:
 
 
 def redefinir_senha(uid: int, nova_senha: str) -> None:
-    """Redefine a senha de um usuário."""
     senha_hash = bcrypt.hashpw(
         nova_senha.encode("utf-8"),
         bcrypt.gensalt(12)
@@ -230,7 +249,6 @@ def redefinir_senha(uid: int, nova_senha: str) -> None:
 
 
 def toggle_usuario(uid: int, ativo: bool) -> None:
-    """Ativa ou desativa um usuário."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -241,7 +259,6 @@ def toggle_usuario(uid: int, ativo: bool) -> None:
 
 
 def remover_usuario(uid: int) -> None:
-    """Remove permanentemente um usuário."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM usuarios WHERE id = %s", (uid,))
@@ -254,10 +271,6 @@ def remover_usuario(uid: int) -> None:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def carregar_empreendimentos() -> pd.DataFrame:
-    """
-    Retorna todos os empreendimentos ativos.
-    Cache de 5 minutos para evitar consultas repetidas.
-    """
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -273,7 +286,6 @@ def carregar_empreendimentos() -> pd.DataFrame:
 
 
 def inserir_empreendimento(empreendimento: str, unidade: str) -> None:
-    """Insere um novo par empreendimento/unidade."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -289,10 +301,6 @@ def inserir_empreendimento(empreendimento: str, unidade: str) -> None:
 
 
 def importar_empreendimentos_xlsx(df: pd.DataFrame) -> tuple[int, int]:
-    """
-    Importa empreendimentos a partir de um DataFrame (vindo do Excel).
-    Retorna (inseridos, ignorados).
-    """
     inseridos = 0
     ignorados = 0
 
@@ -323,7 +331,6 @@ def importar_empreendimentos_xlsx(df: pd.DataFrame) -> tuple[int, int]:
 
 
 def toggle_empreendimento(eid: int, ativo: bool) -> None:
-    """Ativa ou desativa um empreendimento."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -335,7 +342,6 @@ def toggle_empreendimento(eid: int, ativo: bool) -> None:
 
 
 def remover_empreendimento(eid: int) -> None:
-    """Remove permanentemente um empreendimento."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -348,12 +354,13 @@ def remover_empreendimento(eid: int) -> None:
 
 # ============================================================
 # HISTÓRICO DE SIMULAÇÕES
+# CPF removido — usa nome_proponente
 # ============================================================
 
 def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
     """
     Salva uma simulação completa no histórico.
-    d: dicionário com todos os dados calculados pelo simulador.
+    SEGURANÇA: CPF não é salvo. Apenas nome_proponente.
     """
     notas_json = json.dumps(d.get("notas", {}))
 
@@ -363,7 +370,7 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                 """
                 INSERT INTO historico_simulacoes (
                     vendedor_email, vendedor_nome,
-                    empreendimento, unidade, cpf_proponente,
+                    empreendimento, unidade, nome_proponente,
                     idade, faixa_etaria, estado_civil,
                     score_proponente,
                     renda_proponente, qtd_clientes_adicionais,
@@ -386,7 +393,7 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                     vendedor_nome,
                     d.get("empreendimento", ""),
                     d.get("unidade", ""),
-                    d.get("cpf_proponente", ""),
+                    d.get("nome_proponente", ""),   # ← era cpf_proponente
                     d.get("idade"),
                     d.get("faixa_idade", ""),
                     d.get("estado_civil", ""),
@@ -411,7 +418,6 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
 
 
 def carregar_historico() -> pd.DataFrame:
-    """Retorna todo o histórico de simulações ordenado por data."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -423,7 +429,7 @@ def carregar_historico() -> pd.DataFrame:
                     vendedor_email,
                     empreendimento,
                     unidade,
-                    cpf_proponente,
+                    nome_proponente,
                     idade,
                     faixa_etaria,
                     estado_civil,
@@ -447,7 +453,6 @@ def carregar_historico() -> pd.DataFrame:
 
 
 def excluir_historico() -> None:
-    """Remove todos os registros do histórico."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM historico_simulacoes")
@@ -455,7 +460,6 @@ def excluir_historico() -> None:
 
 
 def excluir_simulacao(sid: int) -> None:
-    """Remove uma simulação específica pelo ID."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
