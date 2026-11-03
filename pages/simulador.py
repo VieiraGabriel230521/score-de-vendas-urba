@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from db import carregar_empreendimentos, salvar_simulacao
-from styles import card_resumo, col_header, secao_titulo
+from styles import card_resumo, col_header, rodape
 from utils import (
     LIMITE_BAIXO,
     LIMITE_MODERADO,
@@ -29,37 +29,66 @@ from utils import (
 )
 
 
+# ============================================================
+# LIMPEZA DO FORMULÁRIO
+# ============================================================
+
 def _limpar_formulario() -> None:
     """
-    Incrementa o contador de versão — isso muda as keys de TODOS os widgets,
-    forçando o Streamlit a recriá-los do zero (valores zerados).
+    Incrementa o contador de versão — todas as keys dos widgets
+    mudam de sufixo, forçando o Streamlit a recriá-los zerados.
     """
     st.session_state["sim_versao"] = st.session_state.get("sim_versao", 0) + 1
-    st.session_state["resultado"]  = None
+    st.session_state.pop("resultado", None)
 
+
+# ============================================================
+# CABEÇALHO DE SEÇÃO (inline, sem função externa)
+# ============================================================
+
+def _secao(icone: str, titulo: str, subtitulo: str = "") -> None:
+    sub = f'<div style="font-size:.80rem;color:#6B7280;margin-top:2px;">{subtitulo}</div>' if subtitulo else ""
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:10px;
+                margin-bottom:16px;padding-bottom:10px;
+                border-bottom:2px solid #E8F5EE;">
+        <div style="width:36px;height:36px;background:#F0FBF5;border-radius:8px;
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:1.1rem;">{icone}</div>
+        <div>
+            <div style="font-size:1.05rem;font-weight:800;
+                        color:#056B3A;letter-spacing:-0.01em;">{titulo}</div>
+            {sub}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ============================================================
+# PÁGINA PRINCIPAL
+# ============================================================
 
 def pagina_simulador(usuario: dict) -> None:
 
-    # ── Inicializa controles de estado ───────────────────────
+    # ── Versão do formulário (controla limpeza) ──────────────
     if "sim_versao" not in st.session_state:
         st.session_state["sim_versao"] = 0
-    if "resultado" not in st.session_state:
-        st.session_state["resultado"] = None
-
-    # v é sufixo único de todas as keys — muda ao limpar
     v = st.session_state["sim_versao"]
 
-    # ── Título da seção ──────────────────────────────────────
-    secao_titulo("🧮", "Dados da Simulação",
-                 "Preencha as informações abaixo para calcular o score de risco da venda.")
+    # ── Título ───────────────────────────────────────────────
+    _secao("🧮", "Dados da Simulação",
+           "Preencha as informações abaixo para calcular o score de risco da venda.")
 
     # ── Carrega empreendimentos ──────────────────────────────
     cadastro = carregar_empreendimentos()
 
-    # ── Formulário — 4 colunas ───────────────────────────────
-    col_emp, col_cliente, col_proposta, col_renda = st.columns(4, gap="medium")
+    # ── Formulário — layout: [Empreendimento | Cliente | Proposta | Renda] ──
+    # Empreendimento ocupa coluna maior para o selectbox de unidade não cortar
+    col_emp, col_cliente, col_proposta, col_renda = st.columns([1.4, 1, 1, 1], gap="medium")
 
-    # ── EMPREENDIMENTO ───────────────────────────────────────
+    # ────────────────────────────────────────────────────────
+    # EMPREENDIMENTO
+    # ────────────────────────────────────────────────────────
     with col_emp:
         col_header("🏘️", "Empreendimento")
 
@@ -99,12 +128,16 @@ def pagina_simulador(usuario: dict) -> None:
                 index=0,
                 disabled=not bool(empreendimento),
                 key=f"sim_unidade_{v}",
-                format_func=lambda val: rotulo_unidade(val, empreendimento) if val else "Selecione a unidade",
+                format_func=lambda val: (
+                    rotulo_unidade(val, empreendimento) if val else "Selecione a unidade"
+                ),
             )
             if unidade:
-                st.caption(f"📍 {rotulo_unidade(unidade, empreendimento)}")
+                st.caption(f"📍 {unidade}")   # mostra o nome completo embaixo
 
-    # ── PERFIL DO CLIENTE ────────────────────────────────────
+    # ────────────────────────────────────────────────────────
+    # PERFIL DO CLIENTE
+    # ────────────────────────────────────────────────────────
     with col_cliente:
         col_header("👤", "Perfil do Cliente")
         st.caption("Anexe o relatório SPC do proponente.")
@@ -115,7 +148,6 @@ def pagina_simulador(usuario: dict) -> None:
             key=f"sim_pdf_prop_{v}",
         )
 
-        # Defaults
         score_proponente = None
         renda_proponente = 0.0
         nascimento       = None
@@ -138,8 +170,8 @@ def pagina_simulador(usuario: dict) -> None:
                     faixa_idade = faixa_etaria(idade)
 
                 st.markdown("""
-                <div style='font-weight:700; font-size:.82rem; color:#056B3A;
-                            text-transform:uppercase; letter-spacing:.06em;
+                <div style='font-weight:700;font-size:.82rem;color:#056B3A;
+                            text-transform:uppercase;letter-spacing:.06em;
                             margin:12px 0 8px;'>
                     ✅ Dados identificados no SPC
                 </div>
@@ -173,7 +205,6 @@ def pagina_simulador(usuario: dict) -> None:
             except Exception as e:
                 st.error(f"Falha na leitura do SPC: {e}")
 
-        # Preenchimento manual quando não extraído
         if pdf_prop and not nome_proponente:
             nome_proponente = st.text_input(
                 "Nome do Proponente — preenchimento manual",
@@ -201,7 +232,9 @@ def pagina_simulador(usuario: dict) -> None:
             key=f"sim_estado_civil_{v}",
         )
 
-    # ── DADOS DA PROPOSTA ────────────────────────────────────
+    # ────────────────────────────────────────────────────────
+    # DADOS DA PROPOSTA
+    # ────────────────────────────────────────────────────────
     with col_proposta:
         col_header("📋", "Dados da Proposta")
 
@@ -209,7 +242,9 @@ def pagina_simulador(usuario: dict) -> None:
         valor_proposta  = campo_moeda("Valor da Proposta / Líquido CV (R$) *", f"sim_valor_proposta_{v}")
         primeira_mensal = campo_moeda("Valor da 1ª Mensal (R$) *",             f"sim_primeira_mensal_{v}")
 
-    # ── COMPOSIÇÃO DE RENDA ──────────────────────────────────
+    # ────────────────────────────────────────────────────────
+    # COMPOSIÇÃO DE RENDA
+    # ────────────────────────────────────────────────────────
     with col_renda:
         col_header("💰", "Composição de Renda")
         st.caption("Use somente quando houver cliente adicional compondo renda.")
@@ -225,7 +260,7 @@ def pagina_simulador(usuario: dict) -> None:
         for i in range(int(qtd_adicionais)):
             numero = i + 2
             with st.expander(f"👤 Cliente {numero}", expanded=True):
-                pdf_add = st.file_uploader(
+                pdf_add   = st.file_uploader(
                     f"SPC — Cliente {numero}",
                     type=["pdf"],
                     key=f"sim_pdf_add_{numero}_{v}",
@@ -327,30 +362,54 @@ def pagina_simulador(usuario: dict) -> None:
     d = st.session_state["resultado"]
     st.divider()
 
-    # ── Resumo ───────────────────────────────────────────────
-    secao_titulo("📊", "Resumo da Simulação")
+    # ════════════════════════════════════════════════════════
+    # RESUMO DA SIMULAÇÃO
+    # ════════════════════════════════════════════════════════
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:10px;
+                margin-bottom:16px;padding-bottom:10px;
+                border-bottom:2px solid #E8F5EE;">
+        <div style="width:36px;height:36px;background:#F0FBF5;border-radius:8px;
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:1.1rem;">📊</div>
+        <div style="font-size:1.05rem;font-weight:800;
+                    color:#056B3A;letter-spacing:-0.01em;">Resumo da Simulação</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     r1, r2, r3, r4 = st.columns(4)
     r1.markdown(card_resumo("Empreendimento",     d.get("empreendimento", "—")),                                    unsafe_allow_html=True)
-    r2.markdown(card_resumo("Unidade",            rotulo_unidade(d.get("unidade",""), d.get("empreendimento",""))), unsafe_allow_html=True)
+    r2.markdown(card_resumo("Unidade",            d.get("unidade", "—")),                                           unsafe_allow_html=True)
     r3.markdown(card_resumo("Nome do Proponente", d.get("nome_proponente") or "—"),                                 unsafe_allow_html=True)
     r4.markdown(card_resumo("Renda Total",        brl(d.get("renda_total", 0))),                                    unsafe_allow_html=True)
 
     s1, s2, s3, s4 = st.columns(4)
-    s1.markdown(card_resumo("Faixa Etária",       d.get("faixa_idade") or "—"),      unsafe_allow_html=True)
-    s2.markdown(card_resumo("Estado Civil",        d.get("estado_civil") or "—"),     unsafe_allow_html=True)
-    s3.markdown(card_resumo("Score do Proponente", d.get("score_proponente") or "—"), unsafe_allow_html=True)
-    s4.markdown(card_resumo("Ato Urba",            brl(d.get("ato_urba", 0))),        unsafe_allow_html=True)
+    s1.markdown(card_resumo("Faixa Etária",       d.get("faixa_idade") or "—"),       unsafe_allow_html=True)
+    s2.markdown(card_resumo("Estado Civil",        d.get("estado_civil") or "—"),      unsafe_allow_html=True)
+    s3.markdown(card_resumo("Score do Proponente", d.get("score_proponente") or "—"),  unsafe_allow_html=True)
+    s4.markdown(card_resumo("Ato Urba",            brl(d.get("ato_urba", 0))),         unsafe_allow_html=True)
 
     t1, t2, t3, t4 = st.columns(4)
-    t1.markdown(card_resumo("% do Ato",         f"{d.get('perc_ato',0):.2f}%"),   unsafe_allow_html=True)
-    t2.markdown(card_resumo("1ª Mensal",         brl(d.get("primeira_mensal",0))), unsafe_allow_html=True)
-    t3.markdown(card_resumo("Comprometimento",   f"{d.get('perc_comp',0):.2f}%"),  unsafe_allow_html=True)
-    t4.markdown(card_resumo("Valor da Proposta", brl(d.get("valor_proposta",0))),  unsafe_allow_html=True)
+    t1.markdown(card_resumo("% do Ato",          f"{d.get('perc_ato',0):.2f}%"),    unsafe_allow_html=True)
+    t2.markdown(card_resumo("1ª Mensal",          brl(d.get("primeira_mensal",0))),  unsafe_allow_html=True)
+    t3.markdown(card_resumo("Comprometimento",    f"{d.get('perc_comp',0):.2f}%"),   unsafe_allow_html=True)
+    t4.markdown(card_resumo("Valor da Proposta",  brl(d.get("valor_proposta",0))),   unsafe_allow_html=True)
 
-    # ── Avaliação de Risco ───────────────────────────────────
+    # ════════════════════════════════════════════════════════
+    # AVALIAÇÃO DE RISCO
+    # ════════════════════════════════════════════════════════
     st.divider()
-    secao_titulo("🎯", "Avaliação de Risco")
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:10px;
+                margin-bottom:16px;padding-bottom:10px;
+                border-bottom:2px solid #E8F5EE;">
+        <div style="width:36px;height:36px;background:#F0FBF5;border-radius:8px;
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:1.1rem;">🎯</div>
+        <div style="font-size:1.05rem;font-weight:800;
+                    color:#056B3A;letter-spacing:-0.01em;">Avaliação de Risco</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     col_score, col_detalhe = st.columns([1, 2], gap="large")
 
@@ -366,28 +425,22 @@ def pagina_simulador(usuario: dict) -> None:
         pct = round(score_final / SCORE_MAX * 100)
 
         st.markdown(f"""
-        <div style="background:{bg}; border:2px solid {brd};
-                    border-radius:16px; padding:28px 24px;
-                    text-align:center; box-shadow:0 4px 16px rgba(0,0,0,.08);">
-            <div style="font-size:2.4rem; margin-bottom:8px;">{ico}</div>
-            <div style="font-size:3rem; font-weight:900; color:{txt};
-                        line-height:1; margin-bottom:4px;">
-                {score_final}
-            </div>
-            <div style="font-size:.82rem; color:#6B7280; margin-bottom:12px;">
+        <div style="background:{bg};border:2px solid {brd};
+                    border-radius:16px;padding:28px 24px;
+                    text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.08);">
+            <div style="font-size:2.4rem;margin-bottom:8px;">{ico}</div>
+            <div style="font-size:3rem;font-weight:900;color:{txt};
+                        line-height:1;margin-bottom:4px;">{score_final}</div>
+            <div style="font-size:.82rem;color:#6B7280;margin-bottom:12px;">
                 de {SCORE_MAX} pontos ({pct}%)
             </div>
-            <div style="background:{brd}; border-radius:20px;
-                        height:8px; margin:0 auto 14px; width:80%;
-                        overflow:hidden;">
-                <div style="background:rgba(255,255,255,.5);
-                            height:100%; width:{pct}%;
-                            border-radius:20px;"></div>
+            <div style="background:{brd};border-radius:20px;height:8px;
+                        margin:0 auto 14px;width:80%;overflow:hidden;">
+                <div style="background:rgba(255,255,255,.5);height:100%;
+                            width:{pct}%;border-radius:20px;"></div>
             </div>
-            <div style="font-size:1.05rem; font-weight:900;
-                        color:{txt}; letter-spacing:.04em;">
-                {classificacao}
-            </div>
+            <div style="font-size:1.05rem;font-weight:900;
+                        color:{txt};letter-spacing:.04em;">{classificacao}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -426,11 +479,29 @@ def pagina_simulador(usuario: dict) -> None:
             },
         )
 
-    # ── Estratégias ──────────────────────────────────────────
+    # ════════════════════════════════════════════════════════
+    # ESTRATÉGIAS DE MELHORIA
+    # ════════════════════════════════════════════════════════
     if d["classificacao"] != "BAIXO RISCO":
         st.divider()
-        secao_titulo("💡", "Estratégias de Estruturação da Venda",
-                     "Sugestões para melhorar o score desta simulação.")
+        st.markdown("""
+        <div style="display:flex;align-items:center;gap:10px;
+                    margin-bottom:16px;padding-bottom:10px;
+                    border-bottom:2px solid #E8F5EE;">
+            <div style="width:36px;height:36px;background:#F0FBF5;border-radius:8px;
+                        display:flex;align-items:center;justify-content:center;
+                        font-size:1.1rem;">💡</div>
+            <div>
+                <div style="font-size:1.05rem;font-weight:800;
+                            color:#056B3A;letter-spacing:-0.01em;">
+                    Estratégias de Estruturação da Venda
+                </div>
+                <div style="font-size:.80rem;color:#6B7280;margin-top:2px;">
+                    Sugestões para melhorar o score desta simulação.
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         e1, e2 = st.columns(2)
         e1.metric("Pontos para Risco Moderado", f"+{max(0, LIMITE_MODERADO - d['score_final'])}")
@@ -445,7 +516,7 @@ def pagina_simulador(usuario: dict) -> None:
             df_c["Ganho"]     = df_c["Ganho"].map(lambda x: f"+{x}")
             df_c["NovoScore"] = df_c["NovoScore"].map(str)
             st.dataframe(
-                df_c[["Variável","Ajuste","Ganho","NovoScore","NovaClassificacao"]]
+                df_c[["Variável", "Ajuste", "Ganho", "NovoScore", "NovaClassificacao"]]
                 .head(12)
                 .rename(columns={
                     "NovoScore":         "Novo Score",
@@ -463,14 +534,30 @@ def pagina_simulador(usuario: dict) -> None:
             )
             st.caption("⚠️ Sugestões são simulações contrafactuais. Não alteram dados cadastrais do cliente.")
 
-    # ── Salvar ───────────────────────────────────────────────
+    # ════════════════════════════════════════════════════════
+    # SALVAR
+    # ════════════════════════════════════════════════════════
     st.divider()
-    secao_titulo("💾", "Salvar Simulação",
-                 "Registra esta simulação no histórico administrativo.")
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:10px;
+                margin-bottom:16px;padding-bottom:10px;
+                border-bottom:2px solid #E8F5EE;">
+        <div style="width:36px;height:36px;background:#F0FBF5;border-radius:8px;
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:1.1rem;">💾</div>
+        <div>
+            <div style="font-size:1.05rem;font-weight:800;
+                        color:#056B3A;letter-spacing:-0.01em;">Salvar Simulação</div>
+            <div style="font-size:.80rem;color:#6B7280;margin-top:2px;">
+                Registra esta simulação no histórico administrativo.
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    col_salvar, col_nova = st.columns(2)
+    btn_salvar, btn_nova = st.columns(2)
 
-    with col_salvar:
+    with btn_salvar:
         if st.button(
             "✅ CONFIRMAR E SALVAR NO HISTÓRICO",
             type="primary",
@@ -479,15 +566,16 @@ def pagina_simulador(usuario: dict) -> None:
         ):
             try:
                 salvar_simulacao(d, usuario["email"], usuario["nome"])
-                st.success("✅ Simulação salva com sucesso!")
-                _limpar_formulario()   # incrementa sim_versao → novas keys
+                st.success("✅ Simulação salva com sucesso no histórico.")
+                _limpar_formulario()
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao salvar: {e}")
 
-    with col_nova:
+    with btn_nova:
         if st.button(
             "🔄 NOVA SIMULAÇÃO (sem salvar)",
+            type="secondary",
             use_container_width=True,
             key=f"sim_nova_{v}",
         ):
