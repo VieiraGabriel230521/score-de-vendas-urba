@@ -3,17 +3,26 @@ from __future__ import annotations
 # Score de Vendas Urba
 # Módulo de conexão com Neon (PostgreSQL) + todas as funções de banco
 # SEGURANÇA: CPF removido de todas as operações de banco de dados
+#
+# ALTERAÇÕES (V1.1):
+# - Exclusão de simulações agora é lógica (soft delete) com registro de
+#   quem excluiu, quando e por quê — o histórico é base da premiação.
+# - Removida a função excluir_historico() ("apagar tudo").
+# - Nova coluna preenchimento_manual: registra quais dados foram digitados
+#   manualmente pelo vendedor (auditoria).
+# - Erros técnicos vão para o log, não para a tela.
+# - Migrações simplificadas com ADD/DROP COLUMN IF EXISTS.
 
 import json
-from datetime import datetime
-from zoneinfo import ZoneInfo
+import logging
+
 import bcrypt
 import pandas as pd
 import psycopg2
 import psycopg2.extras
 import streamlit as st
 
-TIMEZONE_BRASILIA = ZoneInfo("America/Sao_Paulo")
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # CONEXÃO
@@ -28,9 +37,8 @@ def get_conn():
 
 def init_db():
     """
-    Garante que todas as tabelas existam.
+    Garante que todas as tabelas existam e aplica migrações.
     Executado uma vez na inicialização do app.
-    NOTA: cpf_proponente foi removido — substituído por nome_proponente.
     """
     sql = """
         -- USUARIOS
@@ -56,9 +64,7 @@ def init_db():
             UNIQUE (empreendimento, unidade)
         );
 
-        -- HISTORICO
-        -- CPF removido por política de proteção de dados
-        -- Substituído por nome_proponente (dado não sensível)
+        -- HISTORICO (CPF não é armazenado)
         CREATE TABLE IF NOT EXISTS historico_simulacoes (
             id                          SERIAL PRIMARY KEY,
             data_hora                   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -87,33 +93,16 @@ def init_db():
             notas_json                  JSONB
         );
 
-        -- Remove coluna cpf_proponente se ainda existir (migração segura)
-        DO $$
-        BEGIN
-            IF EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'historico_simulacoes'
-                AND column_name = 'cpf_proponente'
-            ) THEN
-                ALTER TABLE historico_simulacoes DROP COLUMN cpf_proponente;
-            END IF;
-        END $$;
-
-        -- Adiciona nome_proponente se não existir (migração segura)
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'historico_simulacoes'
-                AND column_name = 'nome_proponente'
-            ) THEN
-                ALTER TABLE historico_simulacoes ADD COLUMN nome_proponente TEXT;
-            END IF;
-        END $$;
+        -- MIGRAÇÕES SEGURAS
+        ALTER TABLE historico_simulacoes DROP COLUMN IF EXISTS cpf_proponente;
+        ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS nome_proponente      TEXT;
+        ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS preenchimento_manual TEXT;
+        ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS excluido             BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS excluido_em          TIMESTAMPTZ;
+        ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS excluido_por         TEXT;
+        ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS motivo_exclusao      TEXT;
 
         -- ÍNDICES
-        CREATE INDEX IF NOT EXISTS idx_usuarios_email
-            ON usuarios (email);
         CREATE INDEX IF NOT EXISTS idx_empreendimentos_nome
             ON empreendimentos (empreendimento);
         CREATE INDEX IF NOT EXISTS idx_hist_vendedor
@@ -178,8 +167,10 @@ def autenticar_usuario(email: str, senha: str):
             "perfil": row["perfil"],
         }
 
-    except Exception as e:
-        st.error(f"Erro na autenticação: {e}")
+    except Exception:
+        # Detalhe técnico só no log — nunca na tela de login
+        logger.exception("Falha na autenticação")
+        st.error("Não foi possível validar o acesso agora. Tente novamente em instantes.")
         return None
 
 
@@ -202,11 +193,7 @@ def listar_usuarios() -> pd.DataFrame:
 
 
 def criar_usuario(nome: str, email: str, senha: str, perfil: str) -> None:
-    senha_hash = bcrypt.hashpw(
-        senha.encode("utf-8"),
-        bcrypt.gensalt(12)
-    ).decode("utf-8")
-
+    senha_hash = bcrypt.hashpw(senha.encode("utf-8"), bcrypt.gensalt(12)).decode("utf-8")
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -223,38 +210,24 @@ def atualizar_usuario(uid: int, nome: str, perfil: str, ativo: bool) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                UPDATE usuarios
-                SET nome = %s, perfil = %s, ativo = %s
-                WHERE id = %s
-                """,
+                "UPDATE usuarios SET nome = %s, perfil = %s, ativo = %s WHERE id = %s",
                 (nome.strip(), perfil, ativo, uid),
             )
         conn.commit()
 
 
 def redefinir_senha(uid: int, nova_senha: str) -> None:
-    senha_hash = bcrypt.hashpw(
-        nova_senha.encode("utf-8"),
-        bcrypt.gensalt(12)
-    ).decode("utf-8")
-
+    senha_hash = bcrypt.hashpw(nova_senha.encode("utf-8"), bcrypt.gensalt(12)).decode("utf-8")
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE usuarios SET senha_hash = %s WHERE id = %s",
-                (senha_hash, uid),
-            )
+            cur.execute("UPDATE usuarios SET senha_hash = %s WHERE id = %s", (senha_hash, uid))
         conn.commit()
 
 
 def toggle_usuario(uid: int, ativo: bool) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE usuarios SET ativo = %s WHERE id = %s",
-                (ativo, uid),
-            )
+            cur.execute("UPDATE usuarios SET ativo = %s WHERE id = %s", (ativo, uid))
         conn.commit()
 
 
@@ -303,7 +276,6 @@ def inserir_empreendimento(empreendimento: str, unidade: str) -> None:
 def importar_empreendimentos_xlsx(df: pd.DataFrame) -> tuple[int, int]:
     inseridos = 0
     ignorados = 0
-
     with get_conn() as conn:
         with conn.cursor() as cur:
             for _, row in df.iterrows():
@@ -325,7 +297,6 @@ def importar_empreendimentos_xlsx(df: pd.DataFrame) -> tuple[int, int]:
                 else:
                     ignorados += 1
         conn.commit()
-
     carregar_empreendimentos.clear()
     return inseridos, ignorados
 
@@ -333,10 +304,7 @@ def importar_empreendimentos_xlsx(df: pd.DataFrame) -> tuple[int, int]:
 def toggle_empreendimento(eid: int, ativo: bool) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE empreendimentos SET ativo = %s WHERE id = %s",
-                (ativo, eid),
-            )
+            cur.execute("UPDATE empreendimentos SET ativo = %s WHERE id = %s", (ativo, eid))
         conn.commit()
     carregar_empreendimentos.clear()
 
@@ -344,23 +312,19 @@ def toggle_empreendimento(eid: int, ativo: bool) -> None:
 def remover_empreendimento(eid: int) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM empreendimentos WHERE id = %s",
-                (eid,),
-            )
+            cur.execute("DELETE FROM empreendimentos WHERE id = %s", (eid,))
         conn.commit()
     carregar_empreendimentos.clear()
 
 
 # ============================================================
 # HISTÓRICO DE SIMULAÇÕES
-# CPF removido — usa nome_proponente
 # ============================================================
 
 def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
     """
     Salva uma simulação completa no histórico.
-    SEGURANÇA: CPF não é salvo. Apenas nome_proponente.
+    SEGURANÇA: CPF não é salvo. O PDF do SPC não é salvo.
     """
     notas_json = json.dumps(d.get("notas", {}))
 
@@ -378,14 +342,16 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                     ato_urba, percentual_ato, faixa_ato,
                     valor_proposta, primeira_mensal,
                     percentual_comprometimento, faixa_comprometimento,
-                    score_final, classificacao, notas_json
+                    score_final, classificacao, notas_json,
+                    preenchimento_manual
                 ) VALUES (
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s,
                     %s, %s, %s, %s,
-                    %s, %s, %s
+                    %s, %s, %s,
+                    %s
                 )
                 """,
                 (
@@ -393,7 +359,7 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                     vendedor_nome,
                     d.get("empreendimento", ""),
                     d.get("unidade", ""),
-                    d.get("nome_proponente", ""),   # ← era cpf_proponente
+                    d.get("nome_proponente", ""),
                     d.get("idade"),
                     d.get("faixa_idade", ""),
                     d.get("estado_civil", ""),
@@ -412,12 +378,14 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                     d.get("score_final", 0),
                     d.get("classificacao", ""),
                     notas_json,
+                    d.get("preenchimento_manual", ""),
                 ),
             )
         conn.commit()
 
 
 def carregar_historico() -> pd.DataFrame:
+    """Retorna apenas simulações não excluídas."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -443,8 +411,10 @@ def carregar_historico() -> pd.DataFrame:
                     percentual_comprometimento,
                     faixa_comprometimento,
                     score_final,
-                    classificacao
+                    classificacao,
+                    preenchimento_manual
                 FROM historico_simulacoes
+                WHERE excluido = FALSE
                 ORDER BY data_hora DESC
                 """
             )
@@ -452,18 +422,24 @@ def carregar_historico() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def excluir_historico() -> None:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM historico_simulacoes")
-        conn.commit()
-
-
-def excluir_simulacao(sid: int) -> None:
+def excluir_simulacao(sid: int, excluido_por: str, motivo: str) -> bool:
+    """
+    Exclusão LÓGICA: o registro continua no banco, marcado como excluído,
+    com quem excluiu, quando e o motivo. Retorna True se algo foi excluído.
+    """
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM historico_simulacoes WHERE id = %s",
-                (sid,),
+                """
+                UPDATE historico_simulacoes
+                SET excluido        = TRUE,
+                    excluido_em     = NOW(),
+                    excluido_por    = %s,
+                    motivo_exclusao = %s
+                WHERE id = %s AND excluido = FALSE
+                """,
+                (excluido_por, motivo.strip(), sid),
             )
+            alterados = cur.rowcount
         conn.commit()
+    return alterados > 0
