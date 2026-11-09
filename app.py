@@ -1,11 +1,25 @@
 # app.py
 # Score de Vendas Urba
 # Arquivo principal — ponto de entrada do Streamlit
+#
+# ALTERAÇÕES (V1.1):
+# - Nome e e-mail do usuário escapados antes de entrar no HTML da sidebar.
+# - Erro de conexão com o banco vai para o log; a tela mostra mensagem genérica.
+# - pagina_historico recebe o usuário logado (registro de quem exclui).
+
+import html
+import logging
 
 import streamlit as st
 
 from db import init_db
 from styles import aplicar_estilos, hero_banner, rodape
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -26,8 +40,9 @@ if "db_iniciado" not in st.session_state:
     try:
         init_db()
         st.session_state.db_iniciado = True
-    except Exception as e:
-        st.error(f"❌ Erro ao conectar ao banco de dados: {e}")
+    except Exception:
+        logger.exception("Erro ao conectar ao banco de dados")
+        st.error("❌ Não foi possível conectar ao banco de dados. Tente novamente em instantes.")
         st.stop()
 
 # ============================================================
@@ -63,6 +78,10 @@ if st.session_state.usuario is None:
 u        = st.session_state.usuario
 eh_admin = u["perfil"] == "ADMINISTRADOR"
 
+nome_seguro   = html.escape(str(u["nome"]))
+email_seguro  = html.escape(str(u["email"]))
+perfil_seguro = html.escape(str(u["perfil"]))
+
 # ============================================================
 # SIDEBAR
 # ============================================================
@@ -80,12 +99,12 @@ with st.sidebar:
         </div>
         <hr style="border-color:rgba(255,255,255,.25); margin-bottom:16px;">
         <div style="font-size:.95rem; font-weight:700; color:#FFFFFF;">
-            {u['nome']}
+            {nome_seguro}
         </div>
         <div style="font-size:.78rem; color:rgba(255,255,255,.80); margin-bottom:6px;">
-            {u['email']}
+            {email_seguro}
         </div>
-        <div class="badge-perfil">{u['perfil']}</div>
+        <div class="badge-perfil">{perfil_seguro}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -201,7 +220,7 @@ if pagina == "Simulador":
 
 elif pagina == "Histórico":
     if eh_admin:
-        pagina_historico()
+        pagina_historico(u)
     else:
         st.warning("⛔ Acesso restrito a administradores.")
 
@@ -221,4 +240,4 @@ elif pagina == "Empreendimentos":
 # ============================================================
 # RODAPÉ
 # ============================================================
-rodape(versao="V1.0")
+rodape(versao="V1.1")
