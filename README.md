@@ -53,6 +53,11 @@ Máximo padrão: 78 pontos. Baixo risco ≥ 54 · Moderado ≥ 33 · Alto < 33.
   e shimmer, prévia do score em vidro, botão "rich"), tudo em CSS puro, sem JS. Barra de abas em pílula de vidro dentro do
   topo verde, com animação na aba ativa.
 
+- Escolha da unidade em dois campos, **Quadra** e **Lote**, quando o nome da unidade segue o
+  padrão "... QUADRA 01 - LOTE 05" (também aceita QD/Q e LT/L). Fora desse padrão, continua a
+  lista única, sem a parte repetida do nome e em ordem numérica (2 antes de 10). Dá para digitar
+  para buscar. A unidade gravada no histórico continua sendo o nome completo.
+
 **Desempenho (troca de páginas)**
 - Pool de conexões com o banco: antes cada consulta abria uma conexão nova com o Neon
   (~0,5–1 s cada pela internet). Com atraso de rede simulado, a troca de abas caiu de

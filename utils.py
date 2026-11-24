@@ -3,6 +3,7 @@ from __future__ import annotations
 # Score de Vendas Urba
 # Funções auxiliares — cálculos, formatações, extração SPC, cenários
 
+import os
 import re
 import unicodedata
 from datetime import datetime
@@ -564,9 +565,55 @@ def mapear_colunas_xlsx(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=mapa)
 
 
-def rotulo_unidade(unidade: str, empreendimento: str) -> str:
+_RE_QUADRA = re.compile(r"\bQ(?:UADRA|DR?)?\.?\s*[-:ºª°]?\s*(\d+[A-Z]?|[A-Z]{1,2}\d*)\b")
+_RE_LOTE   = re.compile(r"\bL(?:OTE|T)?\.?\s*[-:ºª°]?\s*(\d+[A-Z]?)\b")
+
+
+def chave_natural(texto) -> list:
+    """Ordena 'Q2' antes de 'Q10' (números como números)."""
+    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", str(texto or "").upper())]
+
+
+def extrair_quadra_lote(unidade: str) -> tuple[str, str] | None:
+    """'SMART URBA RESERVA - QUADRA 01 - LOTE 05' → ('01', '05'). None se não achar os dois."""
+    t = normalizar_texto(unidade)
+    mq, ml = _RE_QUADRA.search(t), _RE_LOTE.search(t)
+    if not mq or not ml:
+        return None
+    return mq.group(1), ml.group(1)
+
+
+def mapa_quadra_lote(unidades: list[str]) -> dict[tuple[str, str], str] | None:
+    """
+    {(quadra, lote): unidade} quando TODAS as unidades têm quadra e lote
+    identificáveis e sem repetição. Senão None (a tela usa a lista simples).
+    """
+    mapa = {}
+    for u in unidades:
+        ql = extrair_quadra_lote(u)
+        if ql is None or ql in mapa:
+            return None
+        mapa[ql] = u
+    return mapa or None
+
+
+def prefixo_comum(textos: list[str]) -> str:
+    """Parte inicial repetida em todas as unidades (ex.: 'SMART URBA RESERVA - ')."""
+    if len(textos) < 2:
+        return ""
+    pre = os.path.commonprefix([str(t) for t in textos])
+    corte = pre.rfind("-")             # prefere cortar no separador " - "
+    if corte <= 0:
+        corte = pre.rfind(" ")         # senão, no último espaço
+    return pre[:corte + 1] if corte > 0 else ""
+
+
+def rotulo_unidade(unidade: str, empreendimento: str = "") -> str:
     texto = str(unidade or "").strip()
-    emp   = str(empreendimento or "").strip()
+    ql = extrair_quadra_lote(texto)
+    if ql:
+        return f"Quadra {ql[0]} · Lote {ql[1]}"
+    emp = str(empreendimento or "").strip()
     if emp and texto.upper().startswith(emp.upper()):
         curto = texto[len(emp):].lstrip(" -–—")
         if curto:

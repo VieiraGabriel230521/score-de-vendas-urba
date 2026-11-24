@@ -1,0 +1,19 @@
+[theme]
+primaryColor             = "#079D56"
+backgroundColor          = "#EDE9E3"
+secondaryBackgroundColor = "#FFFFFF"
+textColor                = "#1B1712"
+font                     = "Verdana, Geneva, Tahoma, DejaVu Sans, sans-serif"
+headingFont              = "Verdana, Geneva, Tahoma, DejaVu Sans, sans-serif"
+
+[client]
+showSidebarNavigation = false
+toolbarMode           = "minimal"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless             = true
+enableCORS           = false
+enableXsrfProtection = false
