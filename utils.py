@@ -15,7 +15,20 @@ TIMEZONE_BRASILIA = ZoneInfo("America/Sao_Paulo")
 
 # ============================================================
 # PARÂMETROS DO SCORE
+# ------------------------------------------------------------
+# Valores PADRÃO. Os valores em uso ficam no banco (tabela
+# parametros_score) e são editados na aba "Parâmetros".
+# As faixas (ex.: "ATÉ 10%") são fixas; o que muda é a nota
+# de cada faixa, o peso de cada variável e os limites.
 # ============================================================
+VARIAVEIS = {
+    "score_credito":         "Score de Crédito (SPC)",
+    "ato":                   "% do Ato",
+    "comprometimento_renda": "Comprometimento de Renda",
+    "idade":                 "Faixa Etária",
+    "estado_civil":          "Estado Civil",
+}
+
 PESOS = {
     "score_credito":         5,
     "ato":                   5,
@@ -48,11 +61,11 @@ NOTAS_COMPROMETIMENTO = {
 }
 
 NOTAS_IDADE = {
-    "60+ ANOS":     5,
-    "45 A 60 ANOS": 4,
-    "35 A 45 ANOS": 3,
     "ATÉ 25 ANOS":  2,
     "25 A 35 ANOS": 1,
+    "35 A 45 ANOS": 3,
+    "45 A 60 ANOS": 4,
+    "60+ ANOS":     5,
 }
 
 NOTAS_ESTADO_CIVIL = {
@@ -61,18 +74,96 @@ NOTAS_ESTADO_CIVIL = {
     "SOLTEIRO(A)":   1,
 }
 
-# Pontuação máxima possível
-SCORE_MAX = (
-    5 * PESOS["score_credito"]         +
-    5 * PESOS["ato"]                   +
-    5 * PESOS["comprometimento_renda"] +
-    5 * PESOS["idade"]                 +
-    3 * PESOS["estado_civil"]
-)
+PARAMETROS_PADRAO = {
+    "pesos": dict(PESOS),
+    "notas": {
+        "score_credito":         dict(NOTAS_SCORE),
+        "ato":                   dict(NOTAS_ATO),
+        "comprometimento_renda": dict(NOTAS_COMPROMETIMENTO),
+        "idade":                 dict(NOTAS_IDADE),
+        "estado_civil":          dict(NOTAS_ESTADO_CIVIL),
+    },
+    "limites": {"baixo": 54, "moderado": 33},
+}
 
-# Limites de classificação
-LIMITE_BAIXO    = 54
-LIMITE_MODERADO = 33
+NOTA_MAX_PERMITIDA = 10
+PESO_MAX_PERMITIDO = 20
+
+
+def rotulo_faixa(texto) -> str:
+    """'ACIMA DE 4%' → 'Acima de 4%' · 'SOLTEIRO(A)' → 'Solteiro(a)' (só exibição)."""
+    t = str(texto or "").strip()
+    if re.fullmatch(r"[A-F]\s*-\s*[A-F]", t.upper()):  # faixas de score: "C - D"
+        return t.upper()
+    t = t.lower()
+    return t[:1].upper() + t[1:] if t else ""
+
+
+def normalizar_parametros(bruto: dict | None) -> dict:
+    """
+    Junta o que veio do banco com o padrão. Garante que todas as
+    variáveis/faixas existam e que tudo seja inteiro (evita quebrar
+    o cálculo se o JSON salvo estiver incompleto).
+    """
+    bruto = bruto or {}
+    pesos_b  = bruto.get("pesos")   or {}
+    notas_b  = bruto.get("notas")   or {}
+    lim_b    = bruto.get("limites") or {}
+
+    def _int(v, padrao):
+        try:
+            return int(round(float(v)))
+        except (TypeError, ValueError):
+            return padrao
+
+    pesos = {k: _int(pesos_b.get(k), v) for k, v in PARAMETROS_PADRAO["pesos"].items()}
+    notas = {
+        var: {f: _int((notas_b.get(var) or {}).get(f), n) for f, n in faixas.items()}
+        for var, faixas in PARAMETROS_PADRAO["notas"].items()
+    }
+    limites = {
+        "baixo":    _int(lim_b.get("baixo"),    PARAMETROS_PADRAO["limites"]["baixo"]),
+        "moderado": _int(lim_b.get("moderado"), PARAMETROS_PADRAO["limites"]["moderado"]),
+    }
+    return {"pesos": pesos, "notas": notas, "limites": limites}
+
+
+def nota_maxima(params: dict, variavel: str) -> int:
+    return max(params["notas"][variavel].values() or [0])
+
+
+def score_maximo(params: dict | None = None) -> int:
+    p = params or PARAMETROS_PADRAO
+    return sum(nota_maxima(p, var) * p["pesos"][var] for var in p["pesos"])
+
+
+def validar_parametros(params: dict) -> list[str]:
+    """Retorna a lista de problemas (vazia = parâmetros válidos)."""
+    erros = []
+    for var, peso in params["pesos"].items():
+        if not 0 <= peso <= PESO_MAX_PERMITIDO:
+            erros.append(f"Peso de {VARIAVEIS[var]} deve ficar entre 0 e {PESO_MAX_PERMITIDO}.")
+    for var, faixas in params["notas"].items():
+        for faixa, nota in faixas.items():
+            if not 0 <= nota <= NOTA_MAX_PERMITIDA:
+                erros.append(f"Nota de {VARIAVEIS[var]} / {faixa} deve ficar entre 0 e {NOTA_MAX_PERMITIDA}.")
+    if sum(params["pesos"].values()) <= 0:
+        erros.append("Pelo menos uma variável precisa ter peso maior que zero.")
+    mx  = score_maximo(params)
+    lim = params["limites"]
+    if lim["moderado"] <= 0:
+        erros.append("O limite de Risco Moderado precisa ser maior que zero.")
+    if lim["baixo"] <= lim["moderado"]:
+        erros.append("O limite de Baixo Risco precisa ser maior que o de Risco Moderado.")
+    if lim["baixo"] > mx:
+        erros.append(f"O limite de Baixo Risco ({lim['baixo']}) passa do máximo possível ({mx} pontos).")
+    return erros
+
+
+# Compatibilidade: valores padrão (use score_maximo(params) no cálculo)
+SCORE_MAX       = score_maximo(PARAMETROS_PADRAO)
+LIMITE_BAIXO    = PARAMETROS_PADRAO["limites"]["baixo"]
+LIMITE_MODERADO = PARAMETROS_PADRAO["limites"]["moderado"]
 
 
 # ============================================================
@@ -203,23 +294,27 @@ def calcular_notas(
     faixa_comp: str,
     faixa_idade: str,
     estado_civil: str,
+    params: dict | None = None,
 ) -> dict:
+    n = (params or PARAMETROS_PADRAO)["notas"]
     return {
-        "score_credito":         NOTAS_SCORE.get(score_proponente, 0),
-        "ato":                   NOTAS_ATO.get(faixa_at, 0),
-        "comprometimento_renda": NOTAS_COMPROMETIMENTO.get(faixa_comp, 0),
-        "idade":                 NOTAS_IDADE.get(faixa_idade, 0),
-        "estado_civil":          NOTAS_ESTADO_CIVIL.get(estado_civil, 0),
+        "score_credito":         n["score_credito"].get(score_proponente, 0),
+        "ato":                   n["ato"].get(faixa_at, 0),
+        "comprometimento_renda": n["comprometimento_renda"].get(faixa_comp, 0),
+        "idade":                 n["idade"].get(faixa_idade, 0),
+        "estado_civil":          n["estado_civil"].get(estado_civil, 0),
     }
 
 
-def calcular_score_total(notas: dict) -> int:
-    return sum(notas[k] * PESOS[k] for k in PESOS)
+def calcular_score_total(notas: dict, params: dict | None = None) -> int:
+    pesos = (params or PARAMETROS_PADRAO)["pesos"]
+    return sum(notas[k] * pesos[k] for k in pesos)
 
 
-def classificar_score(score: int) -> tuple[str, str]:
-    if score >= LIMITE_BAIXO:    return "BAIXO RISCO",    "green"
-    if score >= LIMITE_MODERADO: return "RISCO MODERADO", "orange"
+def classificar_score(score: int, params: dict | None = None) -> tuple[str, str]:
+    lim = (params or PARAMETROS_PADRAO)["limites"]
+    if score >= lim["baixo"]:    return "BAIXO RISCO",    "green"
+    if score >= lim["moderado"]: return "RISCO MODERADO", "orange"
     return "ALTO RISCO", "red"
 
 
@@ -375,7 +470,11 @@ def montar_cenarios(
     mensal:         float,
     ato:            float,
     valor_proposta: float,
+    params:         dict | None = None,
 ) -> list[dict]:
+    p        = params or PARAMETROS_PADRAO
+    pesos    = p["pesos"]
+    lim      = p["limites"]
     cenarios = []
 
     for pct_meta, faixa_meta in [
@@ -384,8 +483,8 @@ def montar_cenarios(
         (3.00, "3% A 4%"),
         (4.01, "ACIMA DE 4%"),
     ]:
-        nova_nota = NOTAS_ATO[faixa_meta]
-        ganho     = (nova_nota - notas["ato"]) * PESOS["ato"]
+        nova_nota = p["notas"]["ato"][faixa_meta]
+        ganho     = (nova_nota - notas["ato"]) * pesos["ato"]
         ato_alvo  = valor_proposta * pct_meta / 100
         adicional = max(0, ato_alvo - ato)
 
@@ -401,13 +500,14 @@ def montar_cenarios(
             })
 
     for limite, faixa_meta in [
+        (100, "50% A 100%"),
         (50,  "30% A 50%"),
         (30,  "20% A 30%"),
         (20,  "10% A 20%"),
         (10,  "ATÉ 10%"),
     ]:
-        nova_nota   = NOTAS_COMPROMETIMENTO[faixa_meta]
-        ganho       = (nova_nota - notas["comprometimento_renda"]) * PESOS["comprometimento_renda"]
+        nova_nota   = p["notas"]["comprometimento_renda"][faixa_meta]
+        ganho       = (nova_nota - notas["comprometimento_renda"]) * pesos["comprometimento_renda"]
         renda_alvo  = mensal / (limite / 100) if limite > 0 else 0
         mensal_alvo = renda_total * limite / 100
 
@@ -424,14 +524,10 @@ def montar_cenarios(
             })
 
     for c in cenarios:
-        classificacao, _ = classificar_score(c["NovoScore"])
-        c["NovaClassificacao"] = (
-            "🟢 BAIXO RISCO"    if classificacao == "BAIXO RISCO"    else
-            "🟡 RISCO MODERADO" if classificacao == "RISCO MODERADO" else
-            "🔴 ALTO RISCO"
-        )
-        c["AtingeModerado"] = c["NovoScore"] >= LIMITE_MODERADO
-        c["AtingeBaixo"]    = c["NovoScore"] >= LIMITE_BAIXO
+        classificacao, _ = classificar_score(c["NovoScore"], p)
+        c["NovaClassificacao"] = classificacao
+        c["AtingeModerado"]    = c["NovoScore"] >= lim["moderado"]
+        c["AtingeBaixo"]       = c["NovoScore"] >= lim["baixo"]
 
     return sorted(
         cenarios,

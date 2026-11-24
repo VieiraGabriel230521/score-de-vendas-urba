@@ -12,9 +12,20 @@ from __future__ import annotations
 #   manualmente pelo vendedor (auditoria).
 # - Erros técnicos vão para o log, não para a tela.
 # - Migrações simplificadas com ADD/DROP COLUMN IF EXISTS.
+#
+# ALTERAÇÕES (V2.0):
+# - Conexão sempre fechada ao final (antes ficava aberta até o coletor
+#   de lixo) e com timeout — evita esgotar conexões do Neon.
+# - init_db roda uma vez por servidor (cache_resource), não a cada sessão:
+#   login e primeira tela ficam mais rápidos.
+# - Nova tabela parametros_score (versionada): notas, pesos e limites
+#   editáveis na aba "Parâmetros". Cada simulação guarda a versão usada.
+# - Lista de empreendimentos do administrador inclui os inativos (antes
+#   um empreendimento desativado sumia e não podia ser reativado).
 
 import json
 import logging
+from contextlib import contextmanager
 
 import bcrypt
 import pandas as pd
@@ -28,14 +39,29 @@ logger = logging.getLogger(__name__)
 # CONEXÃO
 # ============================================================
 
+@contextmanager
 def get_conn():
-    return psycopg2.connect(
+    """
+    Abre a conexão, faz commit se tudo deu certo (rollback se não)
+    e SEMPRE fecha ao final.
+    """
+    conn = psycopg2.connect(
         st.secrets["NEON_DATABASE_URL"],
         cursor_factory=psycopg2.extras.RealDictCursor,
+        connect_timeout=10,
     )
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
-def init_db():
+@st.cache_resource(show_spinner=False)
+def init_db() -> bool:
     """
     Garante que todas as tabelas existam e aplica migrações.
     Executado uma vez na inicialização do app.
@@ -101,6 +127,16 @@ def init_db():
         ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS excluido_em          TIMESTAMPTZ;
         ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS excluido_por         TEXT;
         ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS motivo_exclusao      TEXT;
+        ALTER TABLE historico_simulacoes ADD  COLUMN IF NOT EXISTS parametros_id        INT;
+
+        -- PARÂMETROS DO SCORE (versionado: a linha mais recente é a vigente)
+        CREATE TABLE IF NOT EXISTS parametros_score (
+            id          SERIAL PRIMARY KEY,
+            dados       JSONB       NOT NULL,
+            criado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            criado_por  TEXT,
+            observacao  TEXT
+        );
 
         -- ÍNDICES
         CREATE INDEX IF NOT EXISTS idx_empreendimentos_nome
@@ -133,6 +169,68 @@ def init_db():
         with conn.cursor() as cur:
             cur.execute(sql)
         conn.commit()
+    return True
+
+
+# ============================================================
+# PARÂMETROS DO SCORE
+# ============================================================
+
+@st.cache_data(ttl=120, show_spinner=False)
+def carregar_parametros() -> tuple[int | None, dict]:
+    """
+    Retorna (id_da_versão, parâmetros). Sem nada salvo, devolve
+    (None, padrão). Cache curto para não consultar o banco a cada clique.
+    """
+    from utils import PARAMETROS_PADRAO, normalizar_parametros
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, dados FROM parametros_score ORDER BY id DESC LIMIT 1"
+                )
+                row = cur.fetchone()
+    except Exception:
+        logger.exception("Falha ao carregar parâmetros — usando padrão")
+        return None, normalizar_parametros(PARAMETROS_PADRAO)
+    if not row:
+        return None, normalizar_parametros(PARAMETROS_PADRAO)
+    return row["id"], normalizar_parametros(row["dados"])
+
+
+def salvar_parametros(params: dict, criado_por: str, observacao: str = "") -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO parametros_score (dados, criado_por, observacao)
+                VALUES (%s, %s, %s)
+                RETURNING id
+                """,
+                (json.dumps(params, ensure_ascii=False), criado_por, observacao.strip() or None),
+            )
+            novo_id = cur.fetchone()["id"]
+        conn.commit()
+    carregar_parametros.clear()
+    return novo_id
+
+
+def listar_versoes_parametros(limite: int = 20) -> pd.DataFrame:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,
+                       criado_em AT TIME ZONE 'America/Sao_Paulo' AS criado_em,
+                       criado_por, observacao, dados
+                FROM parametros_score
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                (limite,),
+            )
+            rows = cur.fetchall()
+    return pd.DataFrame(rows)
 
 
 # ============================================================
@@ -168,10 +266,9 @@ def autenticar_usuario(email: str, senha: str):
         }
 
     except Exception:
-        # Detalhe técnico só no log — nunca na tela de login
+        # Detalhe técnico só no log — a tela de login mostra mensagem genérica
         logger.exception("Falha na autenticação")
-        st.error("Não foi possível validar o acesso agora. Tente novamente em instantes.")
-        return None
+        raise
 
 
 # ============================================================
@@ -255,10 +352,48 @@ def carregar_empreendimentos() -> pd.DataFrame:
                 """
             )
             rows = cur.fetchall()
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=["id", "empreendimento", "unidade", "ativo"])
 
 
-def inserir_empreendimento(empreendimento: str, unidade: str) -> None:
+def listar_empreendimentos_admin() -> pd.DataFrame:
+    """Todos os empreendimentos, ativos e inativos (tela do administrador)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, empreendimento, unidade, ativo
+                FROM empreendimentos
+                ORDER BY empreendimento, unidade
+                """
+            )
+            rows = cur.fetchall()
+    return pd.DataFrame(rows, columns=["id", "empreendimento", "unidade", "ativo"])
+
+
+def atualizar_status_empreendimentos(ativar: list[int], desativar: list[int]) -> None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if ativar:
+                cur.execute("UPDATE empreendimentos SET ativo = TRUE  WHERE id = ANY(%s)", (list(ativar),))
+            if desativar:
+                cur.execute("UPDATE empreendimentos SET ativo = FALSE WHERE id = ANY(%s)", (list(desativar),))
+        conn.commit()
+    carregar_empreendimentos.clear()
+
+
+def remover_empreendimentos(ids: list[int]) -> int:
+    if not ids:
+        return 0
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM empreendimentos WHERE id = ANY(%s)", (list(ids),))
+            n = cur.rowcount
+        conn.commit()
+    carregar_empreendimentos.clear()
+    return n
+
+
+def inserir_empreendimento(empreendimento: str, unidade: str) -> bool:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -269,8 +404,10 @@ def inserir_empreendimento(empreendimento: str, unidade: str) -> None:
                 """,
                 (empreendimento.strip(), unidade.strip()),
             )
+            inserido = cur.rowcount > 0
         conn.commit()
     carregar_empreendimentos.clear()
+    return inserido
 
 
 def importar_empreendimentos_xlsx(df: pd.DataFrame) -> tuple[int, int]:
@@ -343,7 +480,7 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                     valor_proposta, primeira_mensal,
                     percentual_comprometimento, faixa_comprometimento,
                     score_final, classificacao, notas_json,
-                    preenchimento_manual
+                    preenchimento_manual, parametros_id
                 ) VALUES (
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
@@ -351,7 +488,7 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                     %s, %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s,
-                    %s
+                    %s, %s
                 )
                 """,
                 (
@@ -379,6 +516,7 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                     d.get("classificacao", ""),
                     notas_json,
                     d.get("preenchimento_manual", ""),
+                    d.get("parametros_id"),
                 ),
             )
         conn.commit()
@@ -412,7 +550,8 @@ def carregar_historico() -> pd.DataFrame:
                     faixa_comprometimento,
                     score_final,
                     classificacao,
-                    preenchimento_manual
+                    preenchimento_manual,
+                    parametros_id
                 FROM historico_simulacoes
                 WHERE excluido = FALSE
                 ORDER BY data_hora DESC
