@@ -47,6 +47,9 @@ from utils import (
     faixa_ato,
     montar_cenarios,
     nota_maxima,
+    chave_natural,
+    mapa_quadra_lote,
+    prefixo_comum,
     rotulo_faixa,
     rotulo_unidade,
     score_maximo,
@@ -121,7 +124,7 @@ def pagina_simulador(usuario: dict) -> None:
         st.error("Não foi possível carregar os empreendimentos agora. Tente novamente em instantes.")
         return
 
-    col_emp, col_cliente, col_proposta, col_renda = st.columns([1.15, 1.15, 1, 1], gap="small")
+    col_emp, col_cliente, col_proposta, col_renda = st.columns([1.3, 1.15, 1, 1], gap="small")
 
     manuais: list[str] = []
 
@@ -135,6 +138,7 @@ def pagina_simulador(usuario: dict) -> None:
             st.warning("Nenhum empreendimento cadastrado. Solicite ao administrador.")
             empreendimento = ""
             unidade        = ""
+            mapa           = None
         else:
             nomes = cadastro["empreendimento"].dropna().astype(str).str.strip()
             empreendimentos = sorted(nomes[nomes.ne("")].unique().tolist())
@@ -143,23 +147,49 @@ def pagina_simulador(usuario: dict) -> None:
                 key=f"sim_empreendimento_{v}",
                 format_func=lambda x: x or "Selecione",
             )
+            unidade = ""
             if empreendimento:
                 uni = cadastro.loc[
                     cadastro["empreendimento"].astype(str).str.strip() == str(empreendimento).strip(),
                     "unidade",
                 ].dropna().astype(str).str.strip()
-                unidades = sorted(uni[uni.ne("")].unique().tolist(), key=lambda x: x.zfill(30))
+                unidades = sorted(uni[uni.ne("")].unique().tolist(), key=chave_natural)
             else:
                 unidades = []
 
-            unidade = st.selectbox(
-                "Unidade *", [""] + unidades, index=0,
-                disabled=not bool(empreendimento),
-                key=f"sim_unidade_{v}",
-                format_func=lambda val: rotulo_unidade(val, empreendimento) if val else "Selecione a unidade",
-            )
+            mapa = mapa_quadra_lote(unidades) if unidades else None
 
-    # ────────────────────────────────────────────────────────
+            if mapa:
+                # Unidades no padrão "... QUADRA x ... LOTE y": escolhe quadra e depois lote
+                quadras = sorted({q for q, _ in mapa}, key=chave_natural)
+                cq, cl = st.columns(2, gap="small")
+                with cq:
+                    quadra = st.selectbox(
+                        "Quadra *", [""] + quadras, key=f"sim_quadra_{v}_{empreendimento}",
+                        format_func=lambda x: x or "—",
+                    )
+                lotes = sorted((l for q, l in mapa if q == quadra), key=chave_natural) if quadra else []
+                with cl:
+                    lote = st.selectbox(
+                        "Lote *", [""] + lotes, key=f"sim_lote_{v}_{empreendimento}_{quadra}",
+                        disabled=not quadra, format_func=lambda x: x or "—",
+                    )
+                if quadra and lote:
+                    unidade = mapa[(quadra, lote)]
+                st.caption(f"{len(quadras)} quadras · {len(mapa)} lotes. Dica: digite para buscar.")
+            else:
+                # Formato livre: lista única, sem a parte repetida no começo do nome
+                pre = prefixo_comum(unidades)
+                unidade = st.selectbox(
+                    "Unidade *", [""] + unidades, index=0,
+                    disabled=not bool(empreendimento),
+                    key=f"sim_unidade_{v}_{empreendimento}",
+                    format_func=lambda val: (val[len(pre):].strip(" -–—") or val) if val else "Digite ou selecione",
+                )
+                if unidades:
+                    st.caption(f"{len(unidades)} unidades. Dica: digite para buscar.")
+
+        # ────────────────────────────────────────────────────────
     # 2. PERFIL DO CLIENTE
     # ────────────────────────────────────────────────────────
     with col_cliente, st.container(key="card_cliente"):
@@ -321,7 +351,7 @@ def pagina_simulador(usuario: dict) -> None:
     # ── Validação ────────────────────────────────────────────
     faltando = []
     if not empreendimento:   faltando.append("Empreendimento")
-    if not unidade:          faltando.append("Unidade")
+    if not unidade:          faltando.append("Quadra/lote" if empreendimento and mapa else "Unidade")
     if not pdf_prop:         faltando.append("SPC do proponente")
     if pdf_prop and not nascimento:       faltando.append("Data de nascimento")
     if pdf_prop and not score_proponente: faltando.append("Score SPC")
