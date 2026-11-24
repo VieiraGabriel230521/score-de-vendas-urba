@@ -14,8 +14,9 @@ from __future__ import annotations
 # - Migrações simplificadas com ADD/DROP COLUMN IF EXISTS.
 #
 # ALTERAÇÕES (V2.0):
-# - Conexão sempre fechada ao final (antes ficava aberta até o coletor
-#   de lixo) e com timeout — evita esgotar conexões do Neon.
+# - Pool de conexões reaproveitadas (antes: uma conexão nova por consulta,
+#   o que deixava cada troca de página ~1 s mais lenta com o Neon).
+# - Leituras das telas de admin em cache curto, limpo a cada alteração.
 # - init_db roda uma vez por servidor (cache_resource), não a cada sessão:
 #   login e primeira tela ficam mais rápidos.
 # - Nova tabela parametros_score (versionada): notas, pesos e limites
@@ -25,12 +26,14 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from contextlib import contextmanager
 
 import bcrypt
 import pandas as pd
 import psycopg2
 import psycopg2.extras
+from psycopg2 import pool as pg_pool
 import streamlit as st
 
 logger = logging.getLogger(__name__)
@@ -39,25 +42,76 @@ logger = logging.getLogger(__name__)
 # CONEXÃO
 # ============================================================
 
+# Antes, cada consulta abria uma conexão nova com o Neon (TCP + TLS +
+# autenticação = vários "vai e volta" pela internet, ~0,5–1 s cada) e a
+# fechava em seguida. Agora as conexões ficam num pool e são reaproveitadas:
+# cada consulta custa só a ida e volta da própria consulta.
+_CHECAR_APOS_OCIOSA = 60  # s — conexão parada há mais que isso é testada antes de usar
+_ultimo_uso: dict[int, float] = {}
+
+
+def _parametros_conexao() -> dict:
+    return dict(
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        connect_timeout=10,
+        keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
+    )
+
+
+@st.cache_resource(show_spinner=False)
+def _pool() -> pg_pool.ThreadedConnectionPool:
+    return pg_pool.ThreadedConnectionPool(1, 8, st.secrets["NEON_DATABASE_URL"], **_parametros_conexao())
+
+
+def _conexao_viva(conn) -> bool:
+    if conn.closed:
+        return False
+    if time.monotonic() - _ultimo_uso.get(id(conn), 0) < _CHECAR_APOS_OCIOSA:
+        return True
+    try:  # o Neon derruba conexões ociosas quando "dorme": testa antes
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        conn.rollback()
+        return True
+    except Exception:
+        return False
+
+
+def _pegar_conexao():
+    pool = _pool()
+    for _ in range(3):
+        try:
+            conn = pool.getconn()
+        except pg_pool.PoolError:  # pool cheio (muitos acessos ao mesmo tempo): conexão avulsa
+            return None, psycopg2.connect(st.secrets["NEON_DATABASE_URL"], **_parametros_conexao())
+        if _conexao_viva(conn):
+            return pool, conn
+        pool.putconn(conn, close=True)
+    return pool, pool.getconn()
+
+
 @contextmanager
 def get_conn():
     """
-    Abre a conexão, faz commit se tudo deu certo (rollback se não)
-    e SEMPRE fecha ao final.
+    Empresta uma conexão do pool, faz commit se tudo deu certo (rollback
+    se não) e devolve ao pool. Conexão quebrada é descartada.
     """
-    conn = psycopg2.connect(
-        st.secrets["NEON_DATABASE_URL"],
-        cursor_factory=psycopg2.extras.RealDictCursor,
-        connect_timeout=10,
-    )
+    pool, conn = _pegar_conexao()
     try:
         yield conn
         conn.commit()
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         raise
     finally:
-        conn.close()
+        if pool is None:
+            conn.close()
+        else:
+            _ultimo_uso[id(conn)] = time.monotonic()
+            pool.putconn(conn, close=bool(conn.closed))
 
 
 @st.cache_resource(show_spinner=False)
@@ -212,9 +266,11 @@ def salvar_parametros(params: dict, criado_por: str, observacao: str = "") -> in
             novo_id = cur.fetchone()["id"]
         conn.commit()
     carregar_parametros.clear()
+    listar_versoes_parametros.clear()
     return novo_id
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_versoes_parametros(limite: int = 20) -> pd.DataFrame:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -275,6 +331,7 @@ def autenticar_usuario(email: str, senha: str):
 # USUÁRIOS — CRUD
 # ============================================================
 
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_usuarios() -> pd.DataFrame:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -301,6 +358,7 @@ def criar_usuario(nome: str, email: str, senha: str, perfil: str) -> None:
                 (nome.strip(), email.strip().lower(), senha_hash, perfil),
             )
         conn.commit()
+    listar_usuarios.clear()
 
 
 def atualizar_usuario(uid: int, nome: str, perfil: str, ativo: bool) -> None:
@@ -311,6 +369,7 @@ def atualizar_usuario(uid: int, nome: str, perfil: str, ativo: bool) -> None:
                 (nome.strip(), perfil, ativo, uid),
             )
         conn.commit()
+    listar_usuarios.clear()
 
 
 def redefinir_senha(uid: int, nova_senha: str) -> None:
@@ -319,6 +378,7 @@ def redefinir_senha(uid: int, nova_senha: str) -> None:
         with conn.cursor() as cur:
             cur.execute("UPDATE usuarios SET senha_hash = %s WHERE id = %s", (senha_hash, uid))
         conn.commit()
+    listar_usuarios.clear()
 
 
 def toggle_usuario(uid: int, ativo: bool) -> None:
@@ -326,6 +386,7 @@ def toggle_usuario(uid: int, ativo: bool) -> None:
         with conn.cursor() as cur:
             cur.execute("UPDATE usuarios SET ativo = %s WHERE id = %s", (ativo, uid))
         conn.commit()
+    listar_usuarios.clear()
 
 
 def remover_usuario(uid: int) -> None:
@@ -333,6 +394,7 @@ def remover_usuario(uid: int) -> None:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM usuarios WHERE id = %s", (uid,))
         conn.commit()
+    listar_usuarios.clear()
 
 
 # ============================================================
@@ -355,6 +417,7 @@ def carregar_empreendimentos() -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["id", "empreendimento", "unidade", "ativo"])
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def listar_empreendimentos_admin() -> pd.DataFrame:
     """Todos os empreendimentos, ativos e inativos (tela do administrador)."""
     with get_conn() as conn:
@@ -379,6 +442,7 @@ def atualizar_status_empreendimentos(ativar: list[int], desativar: list[int]) ->
                 cur.execute("UPDATE empreendimentos SET ativo = FALSE WHERE id = ANY(%s)", (list(desativar),))
         conn.commit()
     carregar_empreendimentos.clear()
+    listar_empreendimentos_admin.clear()
 
 
 def remover_empreendimentos(ids: list[int]) -> int:
@@ -390,6 +454,7 @@ def remover_empreendimentos(ids: list[int]) -> int:
             n = cur.rowcount
         conn.commit()
     carregar_empreendimentos.clear()
+    listar_empreendimentos_admin.clear()
     return n
 
 
@@ -407,6 +472,7 @@ def inserir_empreendimento(empreendimento: str, unidade: str) -> bool:
             inserido = cur.rowcount > 0
         conn.commit()
     carregar_empreendimentos.clear()
+    listar_empreendimentos_admin.clear()
     return inserido
 
 
@@ -435,6 +501,7 @@ def importar_empreendimentos_xlsx(df: pd.DataFrame) -> tuple[int, int]:
                     ignorados += 1
         conn.commit()
     carregar_empreendimentos.clear()
+    listar_empreendimentos_admin.clear()
     return inseridos, ignorados
 
 
@@ -444,6 +511,7 @@ def toggle_empreendimento(eid: int, ativo: bool) -> None:
             cur.execute("UPDATE empreendimentos SET ativo = %s WHERE id = %s", (ativo, eid))
         conn.commit()
     carregar_empreendimentos.clear()
+    listar_empreendimentos_admin.clear()
 
 
 def remover_empreendimento(eid: int) -> None:
@@ -452,6 +520,7 @@ def remover_empreendimento(eid: int) -> None:
             cur.execute("DELETE FROM empreendimentos WHERE id = %s", (eid,))
         conn.commit()
     carregar_empreendimentos.clear()
+    listar_empreendimentos_admin.clear()
 
 
 # ============================================================
@@ -520,8 +589,10 @@ def salvar_simulacao(d: dict, vendedor_email: str, vendedor_nome: str) -> None:
                 ),
             )
         conn.commit()
+    carregar_historico.clear()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_historico() -> pd.DataFrame:
     """Retorna apenas simulações não excluídas."""
     with get_conn() as conn:
@@ -581,4 +652,5 @@ def excluir_simulacao(sid: int, excluido_por: str, motivo: str) -> bool:
             )
             alterados = cur.rowcount
         conn.commit()
+    carregar_historico.clear()
     return alterados > 0

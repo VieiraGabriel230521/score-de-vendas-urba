@@ -181,9 +181,9 @@ _CSS = """
 html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"]{
   background:var(--offwhite) !important;
 }
-html, body, [data-testid="stApp"], [data-testid="stApp"] *:not([class*="material-symbols"]):not([data-testid*="Icon"]):not([translate="no"]){
-  font-family:var(--fonte) !important;
-}
+/* Fonte: definida no tema (.streamlit/config.toml). Aqui só o reforço
+   leve na raiz — sem seletor universal, que pesava no recálculo de estilo. */
+html, body, [data-testid="stApp"]{ font-family:var(--fonte); }
 [data-testid="stApp"]{ color:var(--texto); }
 
 /* Esconde cromo do Streamlit e a sidebar (navegação é no topo) */
@@ -324,7 +324,7 @@ div[class*="st-key-nav_sair"] button *{ color:#fff !important; }
 div[class*="st-key-nav_sair"] button:hover{ background:var(--laranja) !important; border-color:var(--laranja) !important; }
 @keyframes u-pop{ from{ transform:scale(.9); opacity:.55; } to{ transform:scale(1); opacity:1; } }
 @keyframes u-sobe{ from{ transform:translateY(8px); opacity:0; } to{ transform:none; opacity:1; } }
-.u-secao{ animation:u-sobe .35s ease-out; }
+.u-secao{ animation:u-sobe .2s ease-out; }
 
 /* ---------- Alertas ---------- */
 [data-testid="stAlert"] > div{ border-radius:var(--raio) !important; font-size:.84rem; }
@@ -533,26 +533,6 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
   animation:lg-revela .9s cubic-bezier(.2,.7,.2,1) forwards, lg-shimmer 3.2s 1.6s ease-in-out infinite !important; }
 @keyframes lg-shimmer{ 0%{ background-position:100% 0; } 100%{ background-position:-120% 0; } }
 
-/* Prévia flutuante do score (vidro) */
-.lg-preview{ position:relative; margin-top:38px; width:340px; padding:18px 20px; border-radius:20px;
-  background:linear-gradient(135deg, rgba(255,255,255,.14), rgba(255,255,255,.04));
-  border:1px solid rgba(255,255,255,.18); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
-  box-shadow:0 24px 60px rgba(0,20,15,.45), inset 0 1px 0 rgba(255,255,255,.18);
-  animation:lg-entra 1s .5s cubic-bezier(.2,.7,.2,1) both, lg-boia 7s 1.5s ease-in-out infinite; }
-@keyframes lg-entra{ from{ opacity:0; transform:translateY(24px); filter:blur(8px); } to{ opacity:1; transform:none; filter:blur(0); } }
-.lg-prev-top{ display:flex; align-items:center; gap:16px; }
-.lg-arco{ stroke-dasharray:283; stroke-dashoffset:283; animation:lg-desenha 1.6s 1s cubic-bezier(.2,.7,.2,1) forwards; }
-@keyframes lg-desenha{ to{ stroke-dashoffset:66; } }
-.lg-num{ color:#fff; font-size:1.9rem; font-weight:700; line-height:1; }
-.lg-num small{ font-size:.75rem; color:rgba(255,255,255,.6); font-weight:400; }
-.lg-chip{ display:inline-block; margin-top:6px; padding:3px 10px; border-radius:999px; font-size:.66rem; font-weight:700;
-  background:rgba(130,235,92,.16); color:#B9F59F; border:1px solid rgba(130,235,92,.35); }
-.lg-barras{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
-.lg-barra{ height:6px; border-radius:999px; background:rgba(255,255,255,.10); overflow:hidden; }
-.lg-barra b{ display:block; height:100%; border-radius:999px; transform-origin:left; transform:scaleX(0);
-  animation:lg-cresce 1.1s cubic-bezier(.2,.7,.2,1) forwards; }
-@keyframes lg-cresce{ to{ transform:scaleX(1); } }
-
 /* ---------- Cartão do formulário ---------- */
 div[class*="st-key-login_box"]{
   position:relative; border-radius:26px; padding:34px 32px 28px;
@@ -594,15 +574,14 @@ div[class*="st-key-login_box"] [data-testid="stFormSubmitButton"] > button:hover
   color:#A39D94; font-size:.7rem; }
 
 @media (max-width: 900px){
-  .lg-preview, .lg-casa{ display:none; }
+  .lg-casa{ display:none; }
   .lg-titulo{ font-size:2.1rem; }
   .lg-badge{ margin-top:22px; }
   .lg-hero{ padding:0 0 8px; }
 }
 @media (prefers-reduced-motion: reduce){
-  .lg-bg *, .lg-hero *, .lg-preview, div[class*="st-key-login_box"]{ animation:none !important; }
+  .lg-bg *, .lg-hero *, div[class*="st-key-login_box"]{ animation:none !important; }
   .lg-titulo span{ opacity:1; filter:none; transform:none; }
-  .lg-arco{ stroke-dashoffset:66; } .lg-barra b{ transform:none; }
 }
 </style>
 """
@@ -646,27 +625,11 @@ def login_hero() -> None:
         spans.append(f'<span style="animation-delay:{atraso:.2f}s">{p}</span>&nbsp;')
         atraso += 0.12
     spans.append(f'<span class="lg-brilho" style="animation-delay:{atraso:.2f}s">Score de Vendas</span>')
-    barras = [(VERDE, "92%", .9), (LIMAO, "70%", 1.05), (LARANJA, "48%", 1.2)]
-    barras_html = "".join(
-        f'<div class="lg-barra"><b style="width:{w};background:{c};animation-delay:{d+.6}s"></b></div>'
-        for c, w, d in barras
-    )
     html_md(f"""
     <div class="lg-hero">
       {logo_img("branco", 46)}
       <div class="lg-badge"><i></i>Projeto Classificador de Vendas</div>
       <div class="lg-titulo">{"".join(spans)}</div>
-      <div class="lg-preview">
-        <div class="lg-prev-top">
-          <svg width="74" height="74" viewBox="0 0 100 100" aria-hidden="true">
-            <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="9"/>
-            <circle class="lg-arco" cx="50" cy="50" r="45" fill="none" stroke="#82EB5C" stroke-width="9"
-                    stroke-linecap="round" transform="rotate(-90 50 50)"/>
-          </svg>
-          <div><div class="lg-num">62 <small>/ 78 pts</small></div><div class="lg-chip">Baixo risco</div></div>
-        </div>
-        <div class="lg-barras">{barras_html}</div>
-      </div>
     </div>""")
 
 

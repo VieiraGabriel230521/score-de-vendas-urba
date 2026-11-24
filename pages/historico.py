@@ -116,16 +116,7 @@ def pagina_historico(usuario: dict | None = None) -> None:
     ]
     colunas_exib = [c for c in colunas_exib if c in exib.columns]
 
-    def _cor_classificacao(valor):
-        v = str(valor).upper()
-        if "BAIXO" in v:    return "color:#006B3F;font-weight:bold"
-        if "MODERADO" in v: return "color:#B35A0A;font-weight:bold"
-        if "ALTO" in v:     return "color:#B0124F;font-weight:bold"
-        return ""
-
-    tabela = exib[colunas_exib]
-    if len(tabela) <= 5000:  # estilo só em tabelas de tamanho razoável (leveza)
-        tabela = tabela.style.map(_cor_classificacao, subset=["classificacao"])
+    tabela = exib[colunas_exib]  # sem Styler: renderiza bem mais rápido
 
     st.dataframe(
         tabela,

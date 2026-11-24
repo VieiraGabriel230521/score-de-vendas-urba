@@ -53,6 +53,16 @@ Máximo padrão: 78 pontos. Baixo risco ≥ 54 · Moderado ≥ 33 · Alto < 33.
   e shimmer, prévia do score em vidro, botão "rich"), tudo em CSS puro, sem JS. Barra de abas em pílula de vidro dentro do
   topo verde, com animação na aba ativa.
 
+**Desempenho (troca de páginas)**
+- Pool de conexões com o banco: antes cada consulta abria uma conexão nova com o Neon
+  (~0,5–1 s cada pela internet). Com atraso de rede simulado, a troca de abas caiu de
+  ~1–1,9 s para ~0,2–0,4 s (a primeira visita a cada aba ainda busca os dados: ~0,8 s).
+- Leituras de histórico, usuários, empreendimentos e versões em cache curto, limpo a cada alteração.
+- Tabela do histórico sem estilização linha a linha; impacto dos parâmetros calculado de forma vetorizada.
+- Fonte definida no tema (sem seletor CSS universal).
+- Dica para o Neon: use a connection string do pooler (host com `-pooler`) e, se possível,
+  a mesma região do servidor do Streamlit.
+
 **Correções**
 - **Login com dois cliques**: campos agora ficam num formulário (o clique não se perde
   mais, e Enter também entra). O botão também não se desloca mais no hover.

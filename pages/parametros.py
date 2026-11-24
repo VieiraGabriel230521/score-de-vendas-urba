@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -25,9 +26,6 @@ from utils import (
     PARAMETROS_PADRAO,
     PESO_MAX_PERMITIDO,
     VARIAVEIS,
-    calcular_notas,
-    calcular_score_total,
-    classificar_score,
     normalizar_parametros,
     rotulo_faixa,
     score_maximo,
@@ -76,11 +74,21 @@ def _historico_resumido() -> pd.DataFrame:
 
 
 def _reclassificar(df: pd.DataFrame, params: dict) -> pd.Series:
-    def _uma(r):
-        notas = calcular_notas(r["score_proponente"], r["faixa_ato"], r["faixa_comprometimento"],
-                               r["faixa_etaria"], r["estado_civil"], params)
-        return classificar_score(calcular_score_total(notas, params), params)[0]
-    return df.apply(_uma, axis=1)
+    """Reclassifica o histórico inteiro de uma vez (vetorizado: rápido mesmo com milhares de linhas)."""
+    n, pesos, lim = params["notas"], params["pesos"], params["limites"]
+    colunas = {
+        "score_credito":         "score_proponente",
+        "ato":                   "faixa_ato",
+        "comprometimento_renda": "faixa_comprometimento",
+        "idade":                 "faixa_etaria",
+        "estado_civil":          "estado_civil",
+    }
+    score = sum(df[col].map(n[var]).fillna(0) * pesos[var] for var, col in colunas.items())
+    return pd.Series(
+        np.select([score >= lim["baixo"], score >= lim["moderado"]],
+                  ["BAIXO RISCO", "RISCO MODERADO"], "ALTO RISCO"),
+        index=df.index,
+    )
 
 
 def _faixa_limites_html(maximo: int, moderado: int, baixo: int) -> str:
